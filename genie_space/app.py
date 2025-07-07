@@ -183,22 +183,12 @@ app.layout = html.Div([
                     html.Div([
                         html.Button([
                             html.Div(className="suggestion-icon"),
-                            html.Div("What tables are there and how are they connected? Give me a short summary.", 
-                                   className="suggestion-text", id="suggestion-1-text")
-                        ], id="suggestion-1", className="suggestion-button"),
-                        html.Button([
-                            html.Div(className="suggestion-icon"),
-                            html.Div("Which distribution center has the highest chance of being a bottleneck?",
-                                   className="suggestion-text", id="suggestion-2-text")
-                        ], id="suggestion-2", className="suggestion-button"),
-                        html.Button([
-                            html.Div(className="suggestion-icon"),
                             html.Div("Explain the dataset",
                                    className="suggestion-text", id="suggestion-3-text")
                         ], id="suggestion-3", className="suggestion-button"),
                         html.Button([
                             html.Div(className="suggestion-icon"),
-                            html.Div("What was the demand for our products by week in 2024?",
+                            html.Div("What can i ask?",
                                    className="suggestion-text", id="suggestion-4-text")
                         ], id="suggestion-4", className="suggestion-button")
                     ], className="suggestion-buttons")
