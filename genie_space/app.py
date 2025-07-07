@@ -11,6 +11,10 @@ from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
 load_dotenv()
 
+endpoint_name = os.getenv("SERVING_ENDPOINT_NAME")
+if not endpoint_name:
+    raise ValueError("SERVING_ENDPOINT_NAME environment variable is not set.")
+
 # Create Dash app
 app = dash.Dash(
     __name__,
@@ -276,6 +280,7 @@ def call_llm_for_insights(df, prompt=None):
     csv_data = df.to_csv(index=False)
     full_prompt = f"{prompt}Table data:\n{csv_data}"
     # Call OpenAI (replace with your own LLM provider as needed)
+    endpoint_name = os.getenv("SERVING_ENDPOINT_NAME")
     try:
         client = WorkspaceClient()
         response = client.serving_endpoints.query(
@@ -284,7 +289,7 @@ def call_llm_for_insights(df, prompt=None):
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"Error generating insights: {str(e)}"
+        return f"Error generating insights: {str(e)}, Endpoint: {endpoint_name}"
     
 
 # First callback: Handle inputs and show thinking indicator
