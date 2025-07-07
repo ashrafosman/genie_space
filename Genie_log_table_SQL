@@ -1,0 +1,15 @@
+%sql
+CREATE OR REPLACE TABLE ashraf_osman_gnhx_da.llm_audit.genie_conversation_logs (
+    request_date DATE,
+    databricks_request_id STRING,
+    client_request_id STRING,
+    request_time TIMESTAMP,
+    status_code INT,
+    sampling_fraction DOUBLE,
+    execution_duration_ms BIGINT,
+    request STRING,
+    response STRING,
+    served_entity_id STRING,
+    logging_error_codes STRING,
+    requester STRING
+);
