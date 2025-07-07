@@ -4,6 +4,6 @@ command:
 
 env:
 - name: "SPACE_ID"
-  value: "space_id"
+  value: "01f03517dd2d1b5181c6859d434de2aa"
 - name: "SERVING_ENDPOINT_NAME"
-  valueFrom: "serving_endpoint"
+  valueFrom: "https://adb-984752964297111.11.azuredatabricks.net/serving-endpoints/genie_check/invocations"

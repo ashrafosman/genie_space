@@ -23,10 +23,8 @@ DEFAULT_WELCOME_DESCRIPTION = "Analyze your Supply Chain Performance leveraging 
 
 # Add default suggestion questions
 DEFAULT_SUGGESTIONS = [
-    "What tables are there and how are they connected? Give me a short summary.",
-    "Which distribution center has the highest chance of being a bottleneck?",
     "Explain the dataset",
-    "What was the demand for our products by week in 2024?"
+    "What can i ask"
 ]
 
 # Define the layout
