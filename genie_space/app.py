@@ -4,12 +4,102 @@ import dash_bootstrap_components as dbc
 import json
 from genie_room import genie_query
 import pandas as pd
-import os
 from dotenv import load_dotenv
+import os
 import sqlparse
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
+import uuid
+from datetime import datetime, date
+from databricks import sql
+from token_minter import TokenMinter
 load_dotenv()
+
+CLIENT_ID = os.getenv("DATABRICKS_CLIENT_ID")
+CLIENT_SECRET = os.getenv("DATABRICKS_CLIENT_SECRET")
+DATABRICKS_HOST = os.getenv("DATABRICKS_HOST")
+
+
+token_minter = TokenMinter(
+    client_id=CLIENT_ID,
+    client_secret=CLIENT_SECRET,
+    host=DATABRICKS_HOST
+)
+
+def log_genie_conversation(
+    request,
+    response,
+    status_code,
+    requester,
+    client_request_id=None,
+    sampling_fraction=1.0,
+    execution_duration_ms=0,
+    served_entity_id="",
+    logging_error_codes=None
+):
+    if logging_error_codes is None:
+        logging_error_codes = []
+    now = datetime.now()
+    table_name = os.getenv("GENIE_LOG_TABLE")
+    if not table_name:
+        raise ValueError("GENIE_LOG_TABLE environment variable is not set.")
+
+    server_hostname = os.getenv("DATABRICKS_HOST")
+    http_path = os.getenv("DATABRICKS_SQL_HTTP_PATH")
+    # Use TokenMinter to get a fresh token
+    access_token = token_minter.get_token()
+    if not (server_hostname and http_path and access_token):
+        raise ValueError("DATABRICKS_HOST, DATABRICKS_SQL_HTTP_PATH, and token must be set.")
+
+    row = {
+        "request_date": date.today(),
+        "databricks_request_id": str(uuid.uuid4()),
+        "client_request_id": client_request_id or str(uuid.uuid4()),
+        "request_time": now,
+        "status_code": status_code,
+        "sampling_fraction": sampling_fraction,
+        "execution_duration_ms": execution_duration_ms,
+        "request": request,
+        "response": response,
+        "served_entity_id": served_entity_id,
+        "logging_error_codes": json.dumps(logging_error_codes),
+        "requester": requester
+    }
+
+    insert_sql = f"""
+        INSERT INTO {table_name} (
+            request_date, databricks_request_id, client_request_id, request_time,
+            status_code, sampling_fraction, execution_duration_ms, request, response,
+            served_entity_id, logging_error_codes, requester
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+
+    with sql.connect(
+        server_hostname=server_hostname,
+        http_path=http_path,
+        access_token=access_token
+    ) as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            insert_sql,
+            (
+                row["request_date"],
+                row["databricks_request_id"],
+                row["client_request_id"],
+                row["request_time"],
+                row["status_code"],
+                row["sampling_fraction"],
+                row["execution_duration_ms"],
+                row["request"],
+                row["response"],
+                row["served_entity_id"],
+                row["logging_error_codes"],
+                row["requester"]
+            )
+        )
+        connection.commit()
+
+
 
 endpoint_name = os.getenv("SERVING_ENDPOINT_NAME")
 if not endpoint_name:
@@ -50,7 +140,7 @@ app.layout = html.Div([
                     html.Div("New chat", className="new-chat-text")
                 ], id="sidebar-new-chat-button", className="new-chat-button",disabled=False)
             ], id="nav-left", className="nav-left"),
-            
+
             # Sidebar
             html.Div([
                 html.Div([
@@ -59,7 +149,7 @@ app.layout = html.Div([
                 html.Div([], className="chat-list", id="chat-list")
             ], id="sidebar", className="sidebar")
         ], id="left-component", className="left-component"),
-        
+
         html.Div([
             html.Div("Genie Space", id="logo-container", className="logo-container")
         ], className="nav-center"),
@@ -76,7 +166,7 @@ app.layout = html.Div([
             )
         ], className="nav-right")
     ], className="top-nav"),
-    
+
     # Main content area
     html.Div([
         html.Div([
@@ -88,7 +178,7 @@ app.layout = html.Div([
                     html.Div(className="genie-logo")
                 ], className="genie-logo-container")],
                 className="genie-logo-container-header"),
-               
+
                     # Add settings button with tooltip
                     html.Div([
                         html.Div(id="welcome-title", className="welcome-message", children=DEFAULT_WELCOME_TITLE),
@@ -100,11 +190,11 @@ app.layout = html.Div([
                         className="edit-welcome-button",
                         title="Customize welcome message")
                     ], className="welcome-title-container"),
-                    
-                    html.Div(id="welcome-description", 
-                            className="welcome-message-description",
-                            children=DEFAULT_WELCOME_DESCRIPTION),
-                    
+
+                    html.Div(id="welcome-description",
+                             className="welcome-message-description",
+                             children=DEFAULT_WELCOME_DESCRIPTION),
+
                     # Add modal for editing welcome text
                     dbc.Modal([
                         dbc.ModalHeader(dbc.ModalTitle("Customize Welcome Message")),
@@ -182,10 +272,10 @@ app.layout = html.Div([
                             )
                         ])
                     ], id="edit-welcome-modal", is_open=False, size="lg", backdrop="static"),
-                    
+
                     # Suggestion buttons with IDs
                     html.Div([
-                          html.Button([
+                        html.Button([
                             html.Div(className="suggestion-icon"),
                             html.Div("Explain the dataset",
                                    className="suggestion-text", id="suggestion-1-text")
@@ -207,11 +297,11 @@ app.layout = html.Div([
                         ], id="suggestion-4", className="suggestion-button")
                     ], className="suggestion-buttons")
                 ], id="welcome-container", className="welcome-container visible"),
-                
+
                 # Chat messages
                 html.Div([], id="chat-messages", className="chat-messages"),
             ], id="chat-content", className="chat-content"),
-            
+
             # Input area
             html.Div([
                 html.Div([
@@ -224,20 +314,20 @@ app.layout = html.Div([
                     ),
                     html.Div([
                         html.Button(
-                            id="send-button-fixed", 
+                            id="send-button-fixed",
                             className="input-button send-button",
                             disabled=False
                         )
                     ], className="input-buttons-right"),
-                    html.Div("You can only submit one query at a time", 
-                            id="query-tooltip", 
-                            className="query-tooltip hidden")
+                    html.Div("You can only submit one query at a time",
+                             id="query-tooltip",
+                             className="query-tooltip hidden")
                 ], id="fixed-input-container", className="fixed-input-container"),
                 html.Div("Always review the accuracy of responses.", className="disclaimer-fixed")
             ], id="fixed-input-wrapper", className="fixed-input-wrapper"),
         ], id="chat-container", className="chat-container"),
     ], id="main-content", className="main-content"),
-    
+
     html.Div(id='dummy-output'),
     dcc.Store(id="chat-trigger", data={"trigger": False, "message": ""}),
     dcc.Store(id="chat-history-store", data=[]),
@@ -280,7 +370,6 @@ def call_llm_for_insights(df, prompt=None):
     csv_data = df.to_csv(index=False)
     full_prompt = f"{prompt}Table data:\n{csv_data}"
     # Call OpenAI (replace with your own LLM provider as needed)
-    endpoint_name = os.getenv("SERVING_ENDPOINT_NAME")
     try:
         client = WorkspaceClient()
         response = client.serving_endpoints.query(
@@ -289,8 +378,8 @@ def call_llm_for_insights(df, prompt=None):
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"Error generating insights: {str(e)}, Endpoint: {endpoint_name}"
-    
+        return f"Error generating insights: {str(e)}"
+
 
 # First callback: Handle inputs and show thinking indicator
 @app.callback(
@@ -321,14 +410,14 @@ def call_llm_for_insights(df, prompt=None):
     prevent_initial_call=True
 )
 def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, submit_clicks,
-                     s1_text, s2_text, s3_text, s4_text, input_value, current_messages,
-                     welcome_class, current_chat_list, chat_history, session_data):
+                      s1_text, s2_text, s3_text, s4_text, input_value, current_messages,
+                      welcome_class, current_chat_list, chat_history, session_data):
     ctx = callback_context
     if not ctx.triggered:
         return [no_update] * 8
 
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-    
+
     # Handle suggestion buttons
     suggestion_map = {
         "suggestion-1": s1_text,
@@ -336,16 +425,16 @@ def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, s
         "suggestion-3": s3_text,
         "suggestion-4": s4_text
     }
-    
+
     # Get the user input based on what triggered the callback
     if trigger_id in suggestion_map:
         user_input = suggestion_map[trigger_id]
     else:
         user_input = input_value
-    
+
     if not user_input:
         return [no_update] * 8
-    
+
     # Create user message with user info
     user_message = html.Div([
         html.Div([
@@ -354,10 +443,10 @@ def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, s
         ], className="user-info"),
         html.Div(user_input, className="message-text")
     ], className="user-message message")
-    
+
     # Add the user message to the chat
     updated_messages = current_messages + [user_message] if current_messages else [user_message]
-    
+
     # Add thinking indicator
     thinking_indicator = html.Div([
         html.Div([
@@ -365,19 +454,19 @@ def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, s
             html.Span("Thinking...")
         ], className="thinking-indicator")
     ], className="bot-message message")
-    
+
     updated_messages.append(thinking_indicator)
-    
+
     # Handle session management
     if session_data["current_session"] is None:
         session_data = {"current_session": len(chat_history) if chat_history else 0}
-    
+
     current_session = session_data["current_session"]
-    
+
     # Update chat history
     if chat_history is None:
         chat_history = []
-    
+
     if current_session < len(chat_history):
         chat_history[current_session]["messages"] = updated_messages
         chat_history[current_session]["queries"].append(user_input)
@@ -387,7 +476,7 @@ def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, s
             "queries": [user_input],
             "messages": updated_messages
         })
-    
+
     # Update chat list
     updated_chat_list = []
     for i, session in enumerate(chat_history):
@@ -400,11 +489,16 @@ def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, s
                 id={"type": "chat-item", "index": i}
             )
         )
-    
+
     return (updated_messages, "", "welcome-container hidden",
             {"trigger": True, "message": user_input}, True,
             updated_chat_list, chat_history, session_data)
 
+def get_requester_identity():
+    # Adjust as needed for your authentication context
+    return os.getenv("DATABRICKS_USER", "unknown_user")
+
+# --- vvv REVISED AND CORRECTED FUNCTION vvv ---
 # Second callback: Make API call and show response
 @app.callback(
     [Output("chat-messages", "children", allow_duplicate=True),
@@ -419,160 +513,125 @@ def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, s
 def get_model_response(trigger_data, current_messages, chat_history):
     if not trigger_data or not trigger_data.get("trigger"):
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-    
+
     user_input = trigger_data.get("message", "")
     if not user_input:
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-    
+
+    requester = get_requester_identity()
+    client_request_id = str(uuid.uuid4())
+    start_time = datetime.now()
+
     try:
+        # Get the raw response from the query function
         response, query_text = genie_query(user_input)
         
+        # Prepare variables for logging and UI content
+        response_for_log = ""
+        content_for_ui = None
+
+        # Handle response based on its type (string or DataFrame)
         if isinstance(response, str):
-            content = dcc.Markdown(response, className="message-text")
+            response_for_log = response
+            content_for_ui = dcc.Markdown(response, className="message-text")
         else:
-            # Data table response
+            # It's a DataFrame, so process it accordingly
             df = pd.DataFrame(response)
             
-            # Store the DataFrame in chat_history for later retrieval by insight button
+            # Use .to_json() for logging DataFrames
+            response_for_log = df.to_json(orient='split')
+
             if chat_history and len(chat_history) > 0:
-                chat_history[0].setdefault('dataframes', {})[f"table-{len(chat_history)}"] = df.to_json(orient='split')
+                chat_history[0].setdefault('dataframes', {})[f"table-{len(chat_history)}"] = response_for_log
             else:
-                chat_history = [{"dataframes": {f"table-{len(chat_history)}": df.to_json(orient='split')}}]
-            
-            # Create the table with adjusted styles
+                chat_history = [{"dataframes": {f"table-{len(chat_history)}": response_for_log}}]
+
             data_table = dash_table.DataTable(
                 id=f"table-{len(chat_history)}",
                 data=df.to_dict('records'),
                 columns=[{"name": i, "id": i} for i in df.columns],
-                
-                # Export configuration
                 export_format="csv",
                 export_headers="display",
-                
-                # Other table properties
                 page_size=10,
-                style_table={
-                    'display': 'inline-block',
-                    'overflowX': 'auto',
-                    'width': '95%',
-                    'marginRight': '20px'
-                },
-                style_cell={
-                    'textAlign': 'left',
-                    'fontSize': '12px',
-                    'padding': '4px 10px',
-                    'fontFamily': '-apple-system, BlinkMacSystemFont,Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
-                    'backgroundColor': 'transparent',
-                    'maxWidth': 'fit-content',
-                    'minWidth': '100px'
-                },
-                style_header={
-                    'backgroundColor': '#f8f9fa',
-                    'fontWeight': '600',
-                    'borderBottom': '1px solid #eaecef'
-                },
-                style_data={
-                    'whiteSpace': 'normal',
-                    'height': 'auto'
-                },
+                style_table={'display': 'inline-block', 'overflowX': 'auto', 'width': '95%', 'marginRight': '20px'},
+                style_cell={'textAlign': 'left', 'fontSize': '12px', 'padding': '4px 10px', 'fontFamily': '-apple-system, BlinkMacSystemFont,Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif', 'backgroundColor': 'transparent', 'maxWidth': 'fit-content', 'minWidth': '100px'},
+                style_header={'backgroundColor': '#f8f9fa', 'fontWeight': '600', 'borderBottom': '1px solid #eaecef'},
+                style_data={'whiteSpace': 'normal', 'height': 'auto'},
                 fill_width=False,
                 page_current=0,
                 page_action='native'
             )
 
-            # Format SQL query if available
             query_section = None
             if query_text is not None:
                 formatted_sql = format_sql_query(query_text)
                 query_index = f"{len(chat_history)}-{len(current_messages)}"
-                
                 query_section = html.Div([
-                    html.Div([
-                        html.Button([
-                            html.Span("Show code", id={"type": "toggle-text", "index": query_index})
-                        ], 
-                        id={"type": "toggle-query", "index": query_index}, 
-                        className="toggle-query-button",
-                        n_clicks=0)
-                    ], className="toggle-query-container"),
-                    html.Div([
-                        html.Pre([
-                            html.Code(formatted_sql, className="sql-code")
-                        ], className="sql-pre")
-                    ], 
-                    id={"type": "query-code", "index": query_index}, 
-                    className="query-code-container hidden")
+                    html.Div([html.Button([html.Span("Show code", id={"type": "toggle-text", "index": query_index})], id={"type": "toggle-query", "index": query_index}, className="toggle-query-button", n_clicks=0)], className="toggle-query-container"),
+                    html.Div([html.Pre([html.Code(formatted_sql, className="sql-code")], className="sql-pre")], id={"type": "query-code", "index": query_index}, className="query-code-container hidden")
                 ], id={"type": "query-section", "index": query_index}, className="query-section")
-            
-            insight_button = html.Button(
-                "Generate Insights",
-                id={"type": "insight-button", "index": f"table-{len(chat_history)}"},
-                className="insight-button",
-                style={"border": "none", "background": "#f0f0f0", "padding": "8px 16px", "borderRadius": "4px", "cursor": "pointer"}
-            )
-            insight_output = dcc.Loading(
-                id={"type": "insight-loading", "index": f"table-{len(chat_history)}"},
-                type="circle",
-                color="#000000",
-                children=html.Div(id={"type": "insight-output", "index": f"table-{len(chat_history)}"})
-            )
 
-            # Create content with table and optional SQL section
-            content = html.Div([
-                html.Div([data_table], style={
-                    'marginBottom': '20px',
-                    'paddingRight': '5px'
-                }),
+            insight_button = html.Button("Generate Insights", id={"type": "insight-button", "index": f"table-{len(chat_history)}"}, className="insight-button", style={"border": "none", "background": "#f0f0f0", "padding": "8px 16px", "borderRadius": "4px", "cursor": "pointer"})
+            insight_output = dcc.Loading(id={"type": "insight-loading", "index": f"table-{len(chat_history)}"}, type="circle", color="#000000", children=html.Div(id={"type": "insight-output", "index": f"table-{len(chat_history)}"}))
+
+            content_for_ui = html.Div([
+                html.Div([data_table], style={'marginBottom': '20px', 'paddingRight': '5px'}),
                 query_section if query_section else None,
                 insight_button,
                 insight_output,
             ])
         
-        # Create bot response
+        # Now that the response is definitely a string, log it
+        end_time = datetime.now()
+        execution_duration_ms = int((end_time - start_time).total_seconds() * 1000)
+        log_genie_conversation(
+            request=user_input,
+            response=response_for_log,
+            status_code=200,
+            requester=requester,
+            client_request_id=client_request_id,
+            execution_duration_ms=execution_duration_ms,
+            served_entity_id="",
+            logging_error_codes=[]
+        )
+
         bot_response = html.Div([
-            html.Div([
-                html.Div(className="model-avatar"),
-                html.Span("Genie", className="model-name")
-            ], className="model-info"),
-            html.Div([
-                content,
-                html.Div([
-                    html.Div([
-                        html.Button(
-                            id={"type": "thumbs-up-button", "index": len(chat_history)},
-                            className="thumbs-up-button"
-                        ),
-                        html.Button(
-                            id={"type": "thumbs-down-button", "index": len(chat_history)},
-                            className="thumbs-down-button"
-                        )
-                    ], className="message-actions")
-                ], className="message-footer")
-            ], className="message-content")
+             html.Div([html.Div(className="model-avatar"), html.Span("Genie", className="model-name")], className="model-info"),
+             html.Div([content_for_ui, html.Div([html.Div([html.Button(id={"type": "thumbs-up-button", "index": len(chat_history)}, className="thumbs-up-button"), html.Button(id={"type": "thumbs-down-button", "index": len(chat_history)}, className="thumbs-down-button")], className="message-actions")], className="message-footer")], className="message-content")
         ], className="bot-message message")
-        
-        # Update chat history with both user message and bot response
+
         if chat_history and len(chat_history) > 0:
-            chat_history[0]["messages"] = current_messages[:-1] + [bot_response]  
+            chat_history[0]["messages"] = current_messages[:-1] + [bot_response]
+
         return current_messages[:-1] + [bot_response], chat_history, {"trigger": False, "message": ""}, False
-        
+
     except Exception as e:
-        error_msg = f"Sorry, I encountered an error: {str(e)}. Please try again later."
+        # Handle and log any exceptions that occur
+        error_msg = f"Sorry, I encountered an error: {e}. Please try again later."
+        end_time = datetime.now()
+        execution_duration_ms = int((end_time - start_time).total_seconds() * 1000)
+
+        log_genie_conversation(
+            request=user_input,
+            response=error_msg,
+            status_code=500,
+            requester=requester,
+            client_request_id=client_request_id,
+            execution_duration_ms=execution_duration_ms,
+            served_entity_id="",
+            logging_error_codes=[str(e)]
+        )
+
         error_response = html.Div([
-            html.Div([
-                html.Div(className="model-avatar"),
-                html.Span("Genie", className="model-name")
-            ], className="model-info"),
-            html.Div([
-                html.Div(error_msg, className="message-text")
-            ], className="message-content")
+            html.Div([html.Div(className="model-avatar"), html.Span("Genie", className="model-name")], className="model-info"),
+            html.Div([html.Div(error_msg, className="message-text")], className="message-content")
         ], className="bot-message message")
-        
-        # Update chat history with both user message and error response
+
         if chat_history and len(chat_history) > 0:
             chat_history[0]["messages"] = current_messages[:-1] + [error_response]
-        
+
         return current_messages[:-1] + [error_response], chat_history, {"trigger": False, "message": ""}, False
+
 
 # Toggle sidebar and speech button
 @app.callback(
@@ -615,17 +674,17 @@ def show_chat_history(n_clicks, chat_history, current_chat_list, session_data):
     ctx = dash.callback_context
     if not ctx.triggered:
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-    
+
     # Get the clicked item index
     triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
     clicked_index = json.loads(triggered_id)["index"]
-    
+
     if not chat_history or clicked_index >= len(chat_history):
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update
-    
+
     # Update session data to the clicked session
     new_session_data = {"current_session": clicked_index}
-    
+
     # Update active state in chat list
     updated_chat_list = []
     for i, item in enumerate(current_chat_list):
@@ -637,9 +696,9 @@ def show_chat_history(n_clicks, chat_history, current_chat_list, session_data):
                 id={"type": "chat-item", "index": i}
             )
         )
-    
-    return (chat_history[clicked_index]["messages"], 
-            "welcome-container hidden", 
+
+    return (chat_history[clicked_index]["messages"],
+            "welcome-container hidden",
             updated_chat_list,
             new_session_data)
 
@@ -677,11 +736,11 @@ app.clientside_callback(
      State("session-store", "data")],
     prevent_initial_call=True
 )
-def reset_to_welcome(n_clicks1, n_clicks2, chat_messages, chat_trigger, chat_history_store, 
-                    chat_list, query_running, session_data):
+def reset_to_welcome(n_clicks1, n_clicks2, chat_messages, chat_trigger, chat_history_store,
+                     chat_list, query_running, session_data):
     # Reset session when starting a new chat
     new_session_data = {"current_session": None}
-    return ("welcome-container visible", [], {"trigger": False, "message": ""}, 
+    return ("welcome-container visible", [], {"trigger": False, "message": ""},
             False, chat_history_store, new_session_data)
 
 @app.callback(
@@ -709,7 +768,7 @@ def reset_query_running(chat_messages):
 def toggle_input_disabled(query_running):
     # Show tooltip when query is running, hide it otherwise
     tooltip_class = "query-tooltip visible" if query_running else "query-tooltip hidden"
-    
+
     # Disable input and buttons when query is running
     return query_running, query_running, query_running, query_running, tooltip_class
 
@@ -728,17 +787,17 @@ def handle_feedback(up_clicks, down_clicks, up_class, down_class):
     ctx = callback_context
     if not ctx.triggered:
         return dash.no_update, dash.no_update
-    
+
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
     button_type = json.loads(trigger_id)["type"]
-    
+
     if button_type == "thumbs-up-button":
         new_up_class = "thumbs-up-button active" if "active" not in up_class else "thumbs-up-button"
         new_down_class = "thumbs-down-button"
     else:
         new_up_class = "thumbs-up-button"
         new_down_class = "thumbs-down-button active" if "active" not in down_class else "thumbs-down-button"
-    
+
     return new_up_class, new_down_class
 
 # Add callback for toggling SQL query visibility
@@ -801,9 +860,9 @@ def open_modal(n_clicks, current_title, current_description, s1, s2, s3, s4):
     prevent_initial_call=True
 )
 def handle_modal_actions(save_clicks, close_clicks,
-                        new_title, new_description, s1, s2, s3, s4,
-                        current_title, current_description,
-                        current_s1, current_s2, current_s3, current_s4):
+                         new_title, new_description, s1, s2, s3, s4,
+                         current_title, current_description,
+                         current_s1, current_s2, current_s3, current_s4):
     ctx = callback_context
     if not ctx.triggered:
         return [no_update] * 7
@@ -811,7 +870,7 @@ def handle_modal_actions(save_clicks, close_clicks,
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
     if trigger_id == "close-modal":
-        return [current_title, current_description, 
+        return [current_title, current_description,
                 current_s1, current_s2, current_s3, current_s4, False]
     elif trigger_id == "save-welcome-text":
         # Save the changes

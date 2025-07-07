@@ -4,6 +4,12 @@ command:
 
 env:
 - name: "SPACE_ID"
-  value: "01f03517dd2d1b5181c6859d434de2aa"
+  value: "01f01632e23c1b548d8461f582809363"
 - name: "SERVING_ENDPOINT_NAME"
-  valueFrom: "https://adb-984752964297111.11.azuredatabricks.net/serving-endpoints/genie_check/invocations"
+  value: "genie_check"
+- name: "GENIE_LOG_TABLE"
+  value: "ashraf_osman_gnhx_da.llm_audit.genie_conversation_logs"
+- name: "DATABRICKS_SQL_HTTP_PATH"
+  value: "/sql/1.0/warehouses/148ccb90800933a1"
+
+  
