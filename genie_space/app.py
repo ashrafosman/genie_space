@@ -18,8 +18,8 @@ app = dash.Dash(
 )
 
 # Add default welcome text that can be customized
-DEFAULT_WELCOME_TITLE = "Supply Chain Optimization"
-DEFAULT_WELCOME_DESCRIPTION = "Analyze your Supply Chain Performance leveraging AI/BI Dashboard. Deep dive into your data and metrics."
+DEFAULT_WELCOME_TITLE = "Genie Audit Demo"
+DEFAULT_WELCOME_DESCRIPTION = "Analyze CHHS programs and benifits."
 
 # Add default suggestion questions
 DEFAULT_SUGGESTIONS = [
@@ -181,14 +181,24 @@ app.layout = html.Div([
                     
                     # Suggestion buttons with IDs
                     html.Div([
-                        html.Button([
+                          html.Button([
                             html.Div(className="suggestion-icon"),
                             html.Div("Explain the dataset",
+                                   className="suggestion-text", id="suggestion-1-text")
+                        ], id="suggestion-1", className="suggestion-button"),
+                        html.Button([
+                            html.Div(className="suggestion-icon"),
+                            html.Div("Which tables are used?",
+                                   className="suggestion-text", id="suggestion-2-text")
+                        ], id="suggestion-2", className="suggestion-button"),
+                        html.Button([
+                            html.Div(className="suggestion-icon"),
+                            html.Div("What can i ask?",
                                    className="suggestion-text", id="suggestion-3-text")
                         ], id="suggestion-3", className="suggestion-button"),
                         html.Button([
                             html.Div(className="suggestion-icon"),
-                            html.Div("What can i ask?",
+                            html.Div("What Insights can i derive?",
                                    className="suggestion-text", id="suggestion-4-text")
                         ], id="suggestion-4", className="suggestion-button")
                     ], className="suggestion-buttons")
