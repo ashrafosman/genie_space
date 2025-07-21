@@ -4,12 +4,11 @@ command:
 
 env:
 - name: "SPACE_ID"
-  value: "xxxxxx"
+  value: "01f063521fac16fcbe5993844433c08d"
 - name: "SERVING_ENDPOINT_NAME"
   value: "genie_check"
 - name: "GENIE_LOG_TABLE"
-  value: "xxxxxxx.genie_conversation_logs"
+  value: "ashraf.llm_audit.genie_conversation_logs"
 - name: "DATABRICKS_SQL_HTTP_PATH"
-  value: "/xxxxxxx"
-
+  value: "/sql/1.0/warehouses/a94a22f8652d85c1"
   

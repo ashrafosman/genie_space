@@ -495,8 +495,81 @@ def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, s
             updated_chat_list, chat_history, session_data)
 
 def get_requester_identity():
-    # Adjust as needed for your authentication context
-    return os.getenv("DATABRICKS_USER", "unknown_user")
+    # Try to get email from Databricks WorkspaceClient first
+    try:
+        from databricks.sdk import WorkspaceClient
+        client = WorkspaceClient()
+        current_user = client.current_user.me()
+        if hasattr(current_user, 'emails') and current_user.emails:
+            # Look for primary email first, or any work email
+            for email_obj in current_user.emails:
+                if email_obj.get('primary') or email_obj.get('type') == 'work':
+                    return email_obj.get('value')
+            # If no primary/work email, return the first email
+            return current_user.emails[0].get('value')
+        elif hasattr(current_user, 'user_name') and current_user.user_name:
+            return current_user.user_name
+        elif hasattr(current_user, 'display_name') and current_user.display_name:
+            return current_user.display_name
+    except Exception:
+        pass
+    
+    # Try to decode JWT token from token_minter
+    try:
+        import base64
+        import json
+        token = token_minter.get_token()
+        if token:
+            parts = token.split('.')
+            if len(parts) >= 2:
+                # Decode JWT payload
+                payload = parts[1]
+                payload += '=' * (4 - len(payload) % 4)
+                decoded = base64.b64decode(payload)
+                token_data = json.loads(decoded)
+                
+                # Look for email first, then other username fields in JWT
+                for field in ['email', 'preferred_username', 'sub', 'name', 'user_name']:
+                    if field in token_data and token_data[field]:
+                        return token_data[field]
+    except Exception:
+        pass
+    
+    # Try to use Databricks token to get user info via API
+    try:
+        import requests
+        databricks_host = os.getenv("DATABRICKS_HOST")
+        databricks_token = os.getenv("DATABRICKS_TOKEN")
+        
+        if databricks_host and databricks_token:
+            url = f"{databricks_host}/api/2.0/preview/scim/v2/Me"
+            headers = {"Authorization": f"Bearer {databricks_token}"}
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                user_info = response.json()
+                # Try to get email first
+                emails = user_info.get('emails', [])
+                if emails:
+                    # Look for primary email first, or any work email
+                    for email_obj in emails:
+                        if email_obj.get('primary') or email_obj.get('type') == 'work':
+                            return email_obj.get('value')
+                    # If no primary/work email, return the first email
+                    return emails[0].get('value')
+                # Fallback to userName or displayName
+                return user_info.get('userName', user_info.get('displayName', 'unknown_user'))
+    except Exception:
+        pass
+    
+    # Fallback to environment variables
+    username = (
+        os.getenv("DATABRICKS_USER") or 
+        os.getenv("USER") or 
+        os.getenv("USERNAME") or 
+        os.getenv("LOGNAME") or
+        "unknown_user"
+    )
+    return username
 
 # --- vvv REVISED AND CORRECTED FUNCTION vvv ---
 # Second callback: Make API call and show response
