@@ -1,6 +1,7 @@
 import dash
 from dash import html, dcc, Input, Output, State, callback, ALL, MATCH, callback_context, no_update, clientside_callback, dash_table
 import dash_bootstrap_components as dbc
+from flask import request
 import json
 from genie_room import genie_query
 import pandas as pd
@@ -495,7 +496,16 @@ def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, s
             updated_chat_list, chat_history, session_data)
 
 def get_requester_identity():
-    # Try to get email from Databricks WorkspaceClient first
+    # Try to get email from X-Forwarded-User-Email header first
+    try:
+        if request and hasattr(request, 'headers'):
+            forwarded_email = request.headers.get('X-Forwarded-Email')
+            if forwarded_email:
+                return forwarded_email
+    except Exception:
+        pass
+    
+    # Try to get email from Databricks WorkspaceClient
     try:
         from databricks.sdk import WorkspaceClient
         client = WorkspaceClient()
