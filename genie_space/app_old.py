@@ -36,8 +36,7 @@ def log_genie_conversation(
     sampling_fraction=1.0,
     execution_duration_ms=0,
     served_entity_id="",
-    logging_error_codes=None,
-    sql_query=None
+    logging_error_codes=None
 ):
     if logging_error_codes is None:
         logging_error_codes = []
@@ -65,16 +64,15 @@ def log_genie_conversation(
         "response": response,
         "served_entity_id": served_entity_id,
         "logging_error_codes": json.dumps(logging_error_codes),
-        "requester": requester,
-        "sql_query": sql_query
+        "requester": requester
     }
 
     insert_sql = f"""
         INSERT INTO {table_name} (
             request_date, databricks_request_id, client_request_id, request_time,
             status_code, sampling_fraction, execution_duration_ms, request, response,
-            served_entity_id, logging_error_codes, requester, sql_query
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            served_entity_id, logging_error_codes, requester
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     with sql.connect(
@@ -97,8 +95,7 @@ def log_genie_conversation(
                 row["response"],
                 row["served_entity_id"],
                 row["logging_error_codes"],
-                row["requester"],
-                row["sql_query"]
+                row["requester"]
             )
         )
         connection.commit()
@@ -502,7 +499,7 @@ def get_requester_identity():
     # Try to get email from X-Forwarded-User-Email header first
     try:
         if request and hasattr(request, 'headers'):
-            forwarded_email = request.headers.get('X-Forwarded-Email')
+            forwarded_email = request.headers.get('x-forwarded-user-email')
             if forwarded_email:
                 return forwarded_email
     except Exception:
@@ -678,8 +675,7 @@ def get_model_response(trigger_data, current_messages, chat_history):
             client_request_id=client_request_id,
             execution_duration_ms=execution_duration_ms,
             served_entity_id="",
-            logging_error_codes=[],
-            sql_query=query_text
+            logging_error_codes=[]
         )
 
         bot_response = html.Div([
@@ -706,8 +702,7 @@ def get_model_response(trigger_data, current_messages, chat_history):
             client_request_id=client_request_id,
             execution_duration_ms=execution_duration_ms,
             served_entity_id="",
-            logging_error_codes=[str(e)],
-            sql_query=None
+            logging_error_codes=[str(e)]
         )
 
         error_response = html.Div([
