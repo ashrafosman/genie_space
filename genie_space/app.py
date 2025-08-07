@@ -87,13 +87,12 @@ def log_genie_conversation(
     }
     
     # Try to add user context from the user token
+    import base64
     try:
         if hasattr(flask.request, 'headers'):
             user_token = flask.request.headers.get('X-Forwarded-Access-Token')
             if user_token:
                 # Try to extract user email from JWT for connection context
-                import base64
-                import json
                 parts = user_token.split('.')
                 if len(parts) >= 2:
                     payload_part = parts[1]
