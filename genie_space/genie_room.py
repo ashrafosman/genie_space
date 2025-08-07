@@ -87,16 +87,25 @@ class GenieClient:
         
         # Try with user token first if available
         if self.user_token:
-            logger.info("Using user credentials for start-conversation")
+            logger.info(f"Using user credentials for start-conversation. URL: {url}")
+            logger.info(f"User token length: {len(self.user_token)}")
             self.update_headers(use_user_token=True)
+            logger.info(f"Request headers: {self.headers}")
+            logger.info(f"Request payload: {payload}")
+            
             response = requests.post(url, headers=self.headers, json=payload)
+            logger.info(f"User token response status: {response.status_code}")
             
             # If user token fails, fall back to service principal
             if response.status_code in [401, 403]:
                 logger.warning(f"User token failed with {response.status_code} for start-conversation, falling back to service principal")
                 logger.warning(f"Error response: {response.text}")
+                logger.warning(f"Error headers: {dict(response.headers)}")
                 self.update_headers(use_user_token=False)
                 response = requests.post(url, headers=self.headers, json=payload)
+                logger.info(f"Service principal fallback status: {response.status_code}")
+            else:
+                logger.info("User credentials worked for start-conversation!")
         else:
             logger.info("No user token available, using service principal for start-conversation")
             self.update_headers(use_user_token=False)
