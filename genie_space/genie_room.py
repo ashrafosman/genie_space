@@ -239,12 +239,49 @@ class GenieClient:
     )
     def execute_query(self, conversation_id: str, message_id: str, attachment_id: str) -> Dict[str, Any]:
         """Execute a query using the attachment_id endpoint"""
-        self.update_headers()  # Use service principal for query execution management
         url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/execute-query"
         
-        response = requests.post(url, headers=self.headers)
-        response.raise_for_status()
-        return response.json()
+        logger.info(f"Executing query at: {url}")
+        
+        # Try with user token first if available
+        if self.user_token:
+            logger.info("Attempt 1: Using user token directly for execute-query")
+            self.update_headers(use_user_token=True)
+            response = requests.post(url, headers=self.headers)
+            logger.info(f"User token attempt status: {response.status_code}")
+            
+            if response.status_code == 200:
+                logger.info("Success with user token")
+                return response.json()
+            elif response.status_code in [401, 403]:
+                logger.warning(f"User token failed with {response.status_code}, trying service principal with user context headers")
+                logger.warning(f"Error response body: {response.text}")
+                
+                # Try with service principal + user context headers
+                self.update_headers(use_user_token=False, add_user_context=True)
+                response = requests.post(url, headers=self.headers)
+                logger.info(f"Service principal + user context headers status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    logger.info("Success with service principal + user context headers")
+                    return response.json()
+                else:
+                    logger.warning(f"Service principal + user context failed with {response.status_code}, trying plain service principal")
+                    
+                    # Fall back to plain service principal
+                    self.update_headers(use_user_token=False, add_user_context=False)
+                    response = requests.post(url, headers=self.headers)
+                    response.raise_for_status()
+                    return response.json()
+            else:
+                response.raise_for_status()
+                return response.json()
+        else:
+            logger.info("No user token available, using service principal")
+            self.update_headers(use_user_token=False)
+            response = requests.post(url, headers=self.headers)
+            response.raise_for_status()
+            return response.json()
     
 
     def wait_for_message_completion(self, conversation_id: str, message_id: str, timeout: int = 300, poll_interval: int = 2) -> Dict[str, Any]:
