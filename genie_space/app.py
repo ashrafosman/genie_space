@@ -79,11 +79,37 @@ def log_genie_conversation(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
-    with sql.connect(
-        server_hostname=server_hostname,
-        http_path=http_path,
-        access_token=access_token
-    ) as connection:
+    # Add user context if user token is available (for audit logging)
+    connection_params = {
+        "server_hostname": server_hostname,
+        "http_path": http_path,
+        "access_token": access_token
+    }
+    
+    # Try to add user context from the user token
+    try:
+        if hasattr(flask.request, 'headers'):
+            user_token = flask.request.headers.get('X-Forwarded-Access-Token')
+            if user_token:
+                # Try to extract user email from JWT for connection context
+                import base64
+                import json
+                parts = user_token.split('.')
+                if len(parts) >= 2:
+                    payload_part = parts[1]
+                    payload_part += '=' * (4 - len(payload_part) % 4)
+                    decoded = base64.b64decode(payload_part)
+                    token_data = json.loads(decoded)
+                    user_email = token_data.get('email') or token_data.get('sub') or token_data.get('preferred_username')
+                    if user_email:
+                        # Add user context to connection (this may not be supported by all SQL connectors)
+                        connection_params["_user_id"] = user_email
+                        print(f"DEBUG: Adding user context to SQL connection: {user_email}")
+    except Exception as e:
+        print(f"DEBUG: Could not add user context to SQL connection: {e}")
+        pass
+    
+    with sql.connect(**connection_params) as connection:
         cursor = connection.cursor()
         cursor.execute(
             insert_sql,

@@ -177,7 +177,7 @@ class GenieClient:
                 logger.warning(f"Error response body: {response.text}")
                 logger.warning(f"Error response headers: {dict(response.headers)}")
                 
-                # Approach 2: Service principal with user context headers
+                        # Approach 2: Service principal with user context headers
                 self.update_headers(use_user_token=False, add_user_context=True)
                 response = requests.get(url, headers=self.headers)
                 logger.info(f"Service principal + user context headers status: {response.status_code}")
