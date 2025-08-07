@@ -35,7 +35,7 @@ class GenieClient:
         
         self.base_url = f"https://{host}/api/2.0/genie/spaces/{space_id}"
     
-    def update_headers(self, use_user_token: bool = False) -> None:
+    def update_headers(self, use_user_token: bool = False, add_user_context: bool = False) -> None:
         """Update headers with service principal token by default, user token only when specified"""
         if use_user_token and self.user_token:
             logger.info(f"Using user token for query execution (token length: {len(self.user_token)})")
@@ -48,6 +48,27 @@ class GenieClient:
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
         }
+        
+        # Add user context headers if requested and user token is available
+        if add_user_context and self.user_token:
+            try:
+                import base64
+                import json
+                parts = self.user_token.split('.')
+                if len(parts) >= 2:
+                    payload_part = parts[1]
+                    payload_part += '=' * (4 - len(payload_part) % 4)
+                    decoded = base64.b64decode(payload_part)
+                    token_data = json.loads(decoded)
+                    
+                    # Look for user identifier in JWT
+                    user_id = token_data.get('sub') or token_data.get('email') or token_data.get('preferred_username')
+                    if user_id:
+                        self.headers["X-Databricks-User-Context"] = user_id
+                        self.headers["X-User-Context"] = user_id
+                        logger.info(f"Adding user context headers: {user_id}")
+            except Exception as e:
+                logger.warning(f"Could not extract user context for headers: {e}")
     
     @backoff.on_exception(
         backoff.expo,
@@ -109,20 +130,67 @@ class GenieClient:
         return response.json()
 
     def get_query_result(self, conversation_id: str, message_id: str, attachment_id: str) -> Dict[str, Any]:
-        """Get the query result using the attachment_id endpoint - uses user token for data access"""
-        self.update_headers(use_user_token=True)  # Use user token for actual query execution
-        url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/query-result"
+        """Get the query result using the attachment_id endpoint"""
+        # Try the correct endpoint format first
+        query_result_url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/query-result"
+        message_url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}"
         
-        response = requests.get(url, headers=self.headers)
+        logger.info(f"Attempting to get query result from: {query_result_url}")
+        url = query_result_url
         
-        # If user token fails with 401, try with service principal
-        if response.status_code == 401 and self.user_token:
-            logger.warning("User token authentication failed (401) for query execution, falling back to service principal")
-            self.update_headers(use_user_token=False)  # Fall back to service principal
+        # Approach 1: Try with user token directly
+        if self.user_token:
+            logger.info("Attempt 1: Using user token directly for query-result")
+            self.update_headers(use_user_token=True)
             response = requests.get(url, headers=self.headers)
+            logger.info(f"User token attempt status: {response.status_code}")
             
-        response.raise_for_status()
-        result = response.json()
+            if response.status_code == 200:
+                logger.info("Success with user token")
+                result = response.json()
+            elif response.status_code in [401, 403]:
+                logger.warning(f"User token failed with {response.status_code}, trying service principal with user context headers")
+                logger.warning(f"Error response body: {response.text}")
+                logger.warning(f"Error response headers: {dict(response.headers)}")
+                
+                # Approach 2: Service principal with user context headers
+                self.update_headers(use_user_token=False, add_user_context=True)
+                response = requests.get(url, headers=self.headers)
+                logger.info(f"Service principal + user context headers status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    logger.info("Success with service principal + user context headers")
+                    result = response.json()
+                else:
+                    logger.warning(f"Service principal + user context failed with {response.status_code}, trying plain service principal")
+                    
+                    # Approach 3: Plain service principal
+                    self.update_headers(use_user_token=False, add_user_context=False)
+                    response = requests.get(url, headers=self.headers)
+                    logger.info(f"Plain service principal status: {response.status_code}")
+                    
+                    if response.status_code != 200:
+                        logger.warning(f"Query-result endpoint failed, trying basic message endpoint: {message_url}")
+                        
+                        # Approach 4: Try basic message endpoint
+                        response = requests.get(message_url, headers=self.headers)
+                        logger.info(f"Basic message endpoint status: {response.status_code}")
+                        
+                        if response.status_code != 200:
+                            logger.error(f"All attempts failed. Final response: {response.text}")
+                    
+                    response.raise_for_status()
+                    result = response.json()
+            else:
+                logger.error(f"Unexpected status code {response.status_code}: {response.text}")
+                response.raise_for_status()
+                result = response.json()
+        else:
+            logger.info("No user token available, using service principal")
+            self.update_headers(use_user_token=False)
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            result = response.json()
         
         # Extract data_array from the correct nested location
         data_array = []
