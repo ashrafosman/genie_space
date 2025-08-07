@@ -35,13 +35,13 @@ class GenieClient:
         
         self.base_url = f"https://{host}/api/2.0/genie/spaces/{space_id}"
     
-    def update_headers(self) -> None:
-        """Update headers with user token if available, otherwise use service principal token"""
-        if self.user_token:
-            logger.info(f"Using user token for API call (token length: {len(self.user_token)})")
+    def update_headers(self, use_user_token: bool = False) -> None:
+        """Update headers with service principal token by default, user token only when specified"""
+        if use_user_token and self.user_token:
+            logger.info(f"Using user token for query execution (token length: {len(self.user_token)})")
             access_token = self.user_token
         else:
-            logger.info("No user token available, using service principal token")
+            logger.info("Using service principal token for API call")
             access_token = token_minter.get_token()
             
         self.headers = {
@@ -49,39 +49,43 @@ class GenieClient:
             "Content-Type": "application/json"
         }
     
+    @backoff.on_exception(
+        backoff.expo,
+        Exception,  
+        max_tries=5,
+        factor=2,
+        jitter=backoff.full_jitter,
+        on_backoff=lambda details: logger.warning(
+            f"API request failed. Retrying in {details['wait']:.2f} seconds (attempt {details['tries']})"
+        )
+    )
     def start_conversation(self, question: str) -> Dict[str, Any]:
         """Start a new conversation with the given question"""
-        self.update_headers()  # Refresh token before API call
+        self.update_headers()  # Use service principal for conversation management
         url = f"{self.base_url}/start-conversation"
         payload = {"content": question}
         
         response = requests.post(url, headers=self.headers, json=payload)
-        
-        # If user token fails with 401, try with service principal
-        if response.status_code == 401 and self.user_token:
-            logger.warning("User token authentication failed (401), falling back to service principal")
-            self.user_token = None  # Clear user token
-            self.update_headers()  # Update headers with service principal
-            response = requests.post(url, headers=self.headers, json=payload)
-            
         response.raise_for_status()
         return response.json()
     
+    @backoff.on_exception(
+        backoff.expo,
+        Exception,  # Retry on any exception
+        max_tries=5,
+        factor=2,
+        jitter=backoff.full_jitter,
+        on_backoff=lambda details: logger.warning(
+            f"API request failed. Retrying in {details['wait']:.2f} seconds (attempt {details['tries']})"
+        )
+    )
     def send_message(self, conversation_id: str, message: str) -> Dict[str, Any]:
         """Send a follow-up message to an existing conversation"""
-        self.update_headers()  # Refresh token before API call
+        self.update_headers()  # Use service principal for conversation management
         url = f"{self.base_url}/conversations/{conversation_id}/messages"
         payload = {"content": message}
         
         response = requests.post(url, headers=self.headers, json=payload)
-        
-        # If user token fails with 401, try with service principal
-        if response.status_code == 401 and self.user_token:
-            logger.warning("User token authentication failed (401), falling back to service principal")
-            self.user_token = None  # Clear user token
-            self.update_headers()  # Update headers with service principal
-            response = requests.post(url, headers=self.headers, json=payload)
-            
         response.raise_for_status()
         return response.json()
 
@@ -97,29 +101,26 @@ class GenieClient:
     )
     def get_message(self, conversation_id: str, message_id: str) -> Dict[str, Any]:
         """Get the details of a specific message"""
-        self.update_headers()  # Refresh token before API call
+        self.update_headers()  # Use service principal for message management
         url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}"
         
         response = requests.get(url, headers=self.headers)
         response.raise_for_status()
         return response.json()
 
-    @backoff.on_exception(
-        backoff.expo,
-        Exception,  # Retry on any exception
-        max_tries=5,
-        factor=2,
-        jitter=backoff.full_jitter,
-        on_backoff=lambda details: logger.warning(
-            f"API request failed. Retrying in {details['wait']:.2f} seconds (attempt {details['tries']})"
-        )
-    )
     def get_query_result(self, conversation_id: str, message_id: str, attachment_id: str) -> Dict[str, Any]:
-        """Get the query result using the attachment_id endpoint"""
-        self.update_headers()  # Refresh token before API call
+        """Get the query result using the attachment_id endpoint - uses user token for data access"""
+        self.update_headers(use_user_token=True)  # Use user token for actual query execution
         url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/query-result"
         
         response = requests.get(url, headers=self.headers)
+        
+        # If user token fails with 401, try with service principal
+        if response.status_code == 401 and self.user_token:
+            logger.warning("User token authentication failed (401) for query execution, falling back to service principal")
+            self.update_headers(use_user_token=False)  # Fall back to service principal
+            response = requests.get(url, headers=self.headers)
+            
         response.raise_for_status()
         result = response.json()
         
@@ -146,7 +147,7 @@ class GenieClient:
     )
     def execute_query(self, conversation_id: str, message_id: str, attachment_id: str) -> Dict[str, Any]:
         """Execute a query using the attachment_id endpoint"""
-        self.update_headers()  # Refresh token before API call
+        self.update_headers()  # Use service principal for query execution management
         url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/execute-query"
         
         response = requests.post(url, headers=self.headers)
