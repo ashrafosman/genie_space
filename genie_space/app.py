@@ -2,6 +2,7 @@ import dash
 from dash import html, dcc, Input, Output, State, callback, ALL, MATCH, callback_context, no_update, clientside_callback, dash_table
 import dash_bootstrap_components as dbc
 from flask import request
+import flask
 import json
 from genie_room import genie_query
 import pandas as pd
@@ -48,7 +49,8 @@ def log_genie_conversation(
 
     server_hostname = os.getenv("DATABRICKS_HOST")
     http_path = os.getenv("DATABRICKS_SQL_HTTP_PATH")
-    # Use TokenMinter to get a fresh token
+    
+    # Use service principal token for audit logging (internal operation)
     access_token = token_minter.get_token()
     if not (server_hostname and http_path and access_token):
         raise ValueError("DATABRICKS_HOST, DATABRICKS_SQL_HTTP_PATH, and token must be set.")
@@ -609,8 +611,16 @@ def get_model_response(trigger_data, current_messages, chat_history):
     start_time = datetime.now()
 
     try:
+        # Get user token from X-Forwarded-Access-Token header
+        user_token = None
+        try:
+            if hasattr(flask.request, 'headers'):
+                user_token = flask.request.headers.get('X-Forwarded-Access-Token')
+        except Exception:
+            pass
+            
         # Get the raw response from the query function
-        response, query_text = genie_query(user_input)
+        response, query_text = genie_query(user_input, user_token)
         
         # Prepare variables for logging and UI content
         response_for_log = ""

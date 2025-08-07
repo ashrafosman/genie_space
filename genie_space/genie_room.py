@@ -27,17 +27,19 @@ token_minter = TokenMinter(
 
 
 class GenieClient:
-    def __init__(self, host: str, space_id: str):
+    def __init__(self, host: str, space_id: str, user_token: str = None):
         self.host = host
         self.space_id = space_id
+        self.user_token = user_token
         self.update_headers()
         
         self.base_url = f"https://{host}/api/2.0/genie/spaces/{space_id}"
     
     def update_headers(self) -> None:
-        """Update headers with fresh token from token_minter"""
+        """Update headers with user token if available, otherwise use service principal token"""
+        access_token = self.user_token if self.user_token else token_minter.get_token()
         self.headers = {
-            "Authorization": f"Bearer {token_minter.get_token()}",
+            "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
         }
     
@@ -180,12 +182,13 @@ class GenieClient:
             
         raise TimeoutError(f"Message processing timed out after {timeout} seconds")
 
-def start_new_conversation(question: str) -> Tuple[str, Union[str, pd.DataFrame], Optional[str]]:
+def start_new_conversation(question: str, user_token: str = None) -> Tuple[str, Union[str, pd.DataFrame], Optional[str]]:
     """
     Start a new conversation with Genie.
     
     Args:
         question: The initial question
+        user_token: User access token from X-Forwarded-Access-Token header
         
     Returns:
         Tuple containing:
@@ -196,7 +199,8 @@ def start_new_conversation(question: str) -> Tuple[str, Union[str, pd.DataFrame]
     
     client = GenieClient(
         host=DATABRICKS_HOST,
-        space_id=SPACE_ID
+        space_id=SPACE_ID,
+        user_token=user_token
     )
     
     try:
@@ -216,13 +220,14 @@ def start_new_conversation(question: str) -> Tuple[str, Union[str, pd.DataFrame]
     except Exception as e:
         return None, f"Sorry, an error occurred: {str(e)}. Please try again.", None
 
-def continue_conversation(conversation_id: str, question: str) -> Tuple[Union[str, pd.DataFrame], Optional[str]]:
+def continue_conversation(conversation_id: str, question: str, user_token: str = None) -> Tuple[Union[str, pd.DataFrame], Optional[str]]:
     """
     Send a follow-up message in an existing conversation.
     
     Args:
         conversation_id: The existing conversation ID
         question: The follow-up question
+        user_token: User access token from X-Forwarded-Access-Token header
         
     Returns:
         Tuple containing:
@@ -233,7 +238,8 @@ def continue_conversation(conversation_id: str, question: str) -> Tuple[Union[st
     
     client = GenieClient(
         host=DATABRICKS_HOST,
-        space_id=SPACE_ID
+        space_id=SPACE_ID,
+        user_token=user_token
     )
     
     try:
@@ -307,12 +313,13 @@ def process_genie_response(client, conversation_id, message_id, complete_message
     
     return "No response available", None
 
-def genie_query(question: str) -> Union[Tuple[str, Optional[str]], Tuple[pd.DataFrame, str]]:
+def genie_query(question: str, user_token: str = None) -> Union[Tuple[str, Optional[str]], Tuple[pd.DataFrame, str]]:
     """
     Main entry point for querying Genie.
     
     Args:
         question: The question to ask
+        user_token: User access token from X-Forwarded-Access-Token header
         
     Returns:
         Tuple containing either:
@@ -321,7 +328,7 @@ def genie_query(question: str) -> Union[Tuple[str, Optional[str]], Tuple[pd.Data
     """
     try:
         # Start a new conversation for each query
-        conversation_id, result, query_text = start_new_conversation(question)
+        conversation_id, result, query_text = start_new_conversation(question, user_token)
         return result, query_text
             
     except Exception as e:
