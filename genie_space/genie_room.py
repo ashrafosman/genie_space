@@ -37,22 +37,18 @@ class GenieClient:
     
     def update_headers(self) -> None:
         """Update headers with user token if available, otherwise use service principal token"""
-        access_token = self.user_token if self.user_token else token_minter.get_token()
+        if self.user_token:
+            logger.info(f"Using user token for API call (token length: {len(self.user_token)})")
+            access_token = self.user_token
+        else:
+            logger.info("No user token available, using service principal token")
+            access_token = token_minter.get_token()
+            
         self.headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
         }
     
-    @backoff.on_exception(
-        backoff.expo,
-        Exception,  
-        max_tries=5,
-        factor=2,
-        jitter=backoff.full_jitter,
-        on_backoff=lambda details: logger.warning(
-            f"API request failed. Retrying in {details['wait']:.2f} seconds (attempt {details['tries']})"
-        )
-    )
     def start_conversation(self, question: str) -> Dict[str, Any]:
         """Start a new conversation with the given question"""
         self.update_headers()  # Refresh token before API call
@@ -60,19 +56,17 @@ class GenieClient:
         payload = {"content": question}
         
         response = requests.post(url, headers=self.headers, json=payload)
+        
+        # If user token fails with 401, try with service principal
+        if response.status_code == 401 and self.user_token:
+            logger.warning("User token authentication failed (401), falling back to service principal")
+            self.user_token = None  # Clear user token
+            self.update_headers()  # Update headers with service principal
+            response = requests.post(url, headers=self.headers, json=payload)
+            
         response.raise_for_status()
         return response.json()
     
-    @backoff.on_exception(
-        backoff.expo,
-        Exception,  # Retry on any exception
-        max_tries=5,
-        factor=2,
-        jitter=backoff.full_jitter,
-        on_backoff=lambda details: logger.warning(
-            f"API request failed. Retrying in {details['wait']:.2f} seconds (attempt {details['tries']})"
-        )
-    )
     def send_message(self, conversation_id: str, message: str) -> Dict[str, Any]:
         """Send a follow-up message to an existing conversation"""
         self.update_headers()  # Refresh token before API call
@@ -80,6 +74,14 @@ class GenieClient:
         payload = {"content": message}
         
         response = requests.post(url, headers=self.headers, json=payload)
+        
+        # If user token fails with 401, try with service principal
+        if response.status_code == 401 and self.user_token:
+            logger.warning("User token authentication failed (401), falling back to service principal")
+            self.user_token = None  # Clear user token
+            self.update_headers()  # Update headers with service principal
+            response = requests.post(url, headers=self.headers, json=payload)
+            
         response.raise_for_status()
         return response.json()
 

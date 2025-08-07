@@ -616,7 +616,14 @@ def get_model_response(trigger_data, current_messages, chat_history):
         try:
             if hasattr(flask.request, 'headers'):
                 user_token = flask.request.headers.get('X-Forwarded-Access-Token')
-        except Exception:
+                if user_token:
+                    print(f"DEBUG: Found user token (length: {len(user_token)})")
+                else:
+                    print("DEBUG: No X-Forwarded-Access-Token header found")
+                    # Let's also check what headers are available
+                    print(f"DEBUG: Available headers: {list(flask.request.headers.keys())}")
+        except Exception as e:
+            print(f"DEBUG: Error extracting user token: {e}")
             pass
             
         # Get the raw response from the query function
