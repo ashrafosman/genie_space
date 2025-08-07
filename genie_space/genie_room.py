@@ -82,11 +82,26 @@ class GenieClient:
     )
     def start_conversation(self, question: str) -> Dict[str, Any]:
         """Start a new conversation with the given question"""
-        self.update_headers()  # Use service principal for conversation management
         url = f"{self.base_url}/start-conversation"
         payload = {"content": question}
         
-        response = requests.post(url, headers=self.headers, json=payload)
+        # Try with user token first if available
+        if self.user_token:
+            logger.info("Using user credentials for start-conversation")
+            self.update_headers(use_user_token=True)
+            response = requests.post(url, headers=self.headers, json=payload)
+            
+            # If user token fails, fall back to service principal
+            if response.status_code in [401, 403]:
+                logger.warning(f"User token failed with {response.status_code} for start-conversation, falling back to service principal")
+                logger.warning(f"Error response: {response.text}")
+                self.update_headers(use_user_token=False)
+                response = requests.post(url, headers=self.headers, json=payload)
+        else:
+            logger.info("No user token available, using service principal for start-conversation")
+            self.update_headers(use_user_token=False)
+            response = requests.post(url, headers=self.headers, json=payload)
+        
         response.raise_for_status()
         return response.json()
     
