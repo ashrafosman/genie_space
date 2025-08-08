@@ -101,8 +101,67 @@ env:
 ![](./assets/troubleshooting2.png)
 
 
+## Authentication & Token Management
+
+This application uses a hybrid authentication approach to balance functionality and security:
+
+### **Token Usage Strategy**
+
+#### **Service Principal Token (For Conversation & Query Results)**:
+- `start_conversation()` - Falls back to service principal if user token fails
+- `send_message()` - Uses service principal directly
+- `get_message()` - Uses service principal directly
+- `get_query_result()` - Uses service principal directly
+
+#### **User Token + DATABRICKS_SQL_HTTP_PATH (For Query Execution)**:
+- `execute_query()` - Uses user token with `DATABRICKS_SQL_HTTP_PATH` for direct SQL execution
+
+### **Environment Variables Required**
+
+```yaml
+env:
+- name: "SPACE_ID"
+  value: "your_genie_space_id"
+- name: "DATABRICKS_HOST"
+  value: "your_databricks_host"
+- name: "DATABRICKS_CLIENT_ID"
+  value: "your_client_id"
+- name: "DATABRICKS_CLIENT_SECRET"
+  value: "your_client_secret"
+- name: "DATABRICKS_SQL_HTTP_PATH"
+  value: "your_sql_warehouse_http_path"
+- name: "GENIE_LOG_TABLE"
+  value: "your_audit_table_name"
+- name: "SERVING_ENDPOINT_NAME"
+  valueFrom: "serving_endpoint"
+```
+
+### **DATABRICKS_SQL_HTTP_PATH Usage**
+
+The `DATABRICKS_SQL_HTTP_PATH` environment variable is used for:
+
+1. **Direct SQL Execution**: Bypasses Genie API limitations by executing SQL queries directly through Databricks SQL
+2. **User Token Authentication**: Query execution requires proper user permissions via user token
+3. **Audit Logging**: Logs conversation and query activities for compliance
+4. **Performance**: Direct SQL execution is typically faster than API-based execution
+
+### **Security Benefits**
+
+- **User Token Required**: Query execution requires proper user authentication
+- **Service Principal Fallback**: Conversation flow continues even if user token has issues
+- **Audit Trail**: Maintains user context for compliance and monitoring
+- **Permission Enforcement**: Clear error messages when user lacks required permissions
+
+### **Expected Behavior**
+
+1. **Conversations work smoothly** - Using service principal fallback
+2. **Query results work** - Using service principal to fetch results
+3. **Query execution works** - Using user token via `DATABRICKS_SQL_HTTP_PATH` for direct SQL execution
+4. **Clear error handling** - Proper error messages when permissions are insufficient
+
 ## Resources
 
 - [Databricks Genie Documentation](https://docs.databricks.com/aws/en/genie)
 - [Conversation APIs Documentation](https://docs.databricks.com/api/workspace/genie)
 - [Databricks Apps Documentation](https://docs.databricks.com/aws/en/dev-tools/databricks-apps/)
+- [Databricks SQL Connector Documentation](https://docs.databricks.com/dev-tools/python-sql-connector.html)
