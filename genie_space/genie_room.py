@@ -35,9 +35,9 @@ class GenieClient:
         
         self.base_url = f"https://{host}/api/2.0/genie/spaces/{space_id}"
     
-    def update_headers(self, use_user_token: bool = False, add_user_context: bool = False) -> None:
-        """Update headers with service principal token by default, user token only when specified"""
-        if use_user_token and self.user_token:
+    def update_headers(self, use_service_principal: bool = False, add_user_context: bool = False) -> None:
+        """Update headers with user token by default, service principal token only when specified"""
+        if not use_service_principal and self.user_token:
             logger.info(f"Using user token for query execution (token length: {len(self.user_token)})")
             access_token = self.user_token
         else:
@@ -89,7 +89,7 @@ class GenieClient:
         if self.user_token:
             logger.info(f"Using user credentials for start-conversation. URL: {url}")
             logger.info(f"User token length: {len(self.user_token)}")
-            self.update_headers(use_user_token=True)
+            self.update_headers(use_service_principal=False)
             logger.info(f"Request headers: {self.headers}")
             logger.info(f"Request payload: {payload}")
             
@@ -101,7 +101,7 @@ class GenieClient:
                 logger.warning(f"User token failed with {response.status_code} for start-conversation, falling back to service principal")
                 logger.warning(f"Error response: {response.text}")
                 logger.warning(f"Error headers: {dict(response.headers)}")
-                self.update_headers(use_user_token=False)
+                self.update_headers(use_service_principal=True)
                 response = requests.post(url, headers=self.headers, json=payload)
                 logger.info(f"Service principal fallback status: {response.status_code}")
             else:
@@ -165,7 +165,7 @@ class GenieClient:
         # Approach 1: Try with user token directly
         if self.user_token:
             logger.info("Attempt 1: Using user token directly for query-result")
-            self.update_headers(use_user_token=True)
+            self.update_headers(use_service_principal=False)
             response = requests.get(url, headers=self.headers)
             logger.info(f"User token attempt status: {response.status_code}")
             
@@ -178,7 +178,7 @@ class GenieClient:
                 logger.warning(f"Error response headers: {dict(response.headers)}")
                 
                         # Approach 2: Service principal with user context headers
-                self.update_headers(use_user_token=False, add_user_context=True)
+                self.update_headers(use_service_principal=True, add_user_context=True)
                 response = requests.get(url, headers=self.headers)
                 logger.info(f"Service principal + user context headers status: {response.status_code}")
                 
@@ -189,7 +189,7 @@ class GenieClient:
                     logger.warning(f"Service principal + user context failed with {response.status_code}, trying plain service principal")
                     
                     # Approach 3: Plain service principal
-                    self.update_headers(use_user_token=False, add_user_context=False)
+                    self.update_headers(use_service_principal=True, add_user_context=False)
                     response = requests.get(url, headers=self.headers)
                     logger.info(f"Plain service principal status: {response.status_code}")
                     
@@ -246,7 +246,7 @@ class GenieClient:
         # Try with user token first if available
         if self.user_token:
             logger.info("Attempt 1: Using user token directly for execute-query")
-            self.update_headers(use_user_token=True)
+            self.update_headers(use_service_principal=False)
             response = requests.post(url, headers=self.headers)
             logger.info(f"User token attempt status: {response.status_code}")
             
@@ -258,7 +258,7 @@ class GenieClient:
                 logger.warning(f"Error response body: {response.text}")
                 
                 # Try with service principal + user context headers
-                self.update_headers(use_user_token=False, add_user_context=True)
+                self.update_headers(use_service_principal=True, add_user_context=True)
                 response = requests.post(url, headers=self.headers)
                 logger.info(f"Service principal + user context headers status: {response.status_code}")
                 
@@ -269,7 +269,7 @@ class GenieClient:
                     logger.warning(f"Service principal + user context failed with {response.status_code}, trying plain service principal")
                     
                     # Fall back to plain service principal
-                    self.update_headers(use_user_token=False, add_user_context=False)
+                    self.update_headers(use_service_principal=True, add_user_context=False)
                     response = requests.post(url, headers=self.headers)
                     response.raise_for_status()
                     return response.json()
