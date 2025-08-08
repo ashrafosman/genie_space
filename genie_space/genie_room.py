@@ -205,13 +205,14 @@ class GenieClient:
             f"API request failed. Retrying in {details['wait']:.2f} seconds (attempt {details['tries']})"
         )
     )
-    def execute_query(self, conversation_id: str, message_id: str, attachment_id: str) -> Dict[str, Any]:
+    def execute_query(self, conversation_id: str, message_id: str, attachment_id: str, query_text: str = None) -> Dict[str, Any]:
         """Execute a query using Databricks SQL with user token only
         
         Args:
             conversation_id: The ID of the conversation
             message_id: The ID of the message
             attachment_id: The ID of the attachment containing the query
+            query_text: The SQL query to execute (if not provided, will try to extract from attachment)
             
         Returns:
             Dict containing the query execution result
@@ -225,25 +226,26 @@ class GenieClient:
             logger.error(error_msg)
             raise PermissionError(error_msg)
         
-        # Get the SQL query from the attachment
-        try:
-            # First get the attachment details to extract the SQL query
-            attachment_url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}"
-            self.update_headers(use_service_principal=True)  # Use service principal to get attachment details
-            response = requests.get(attachment_url, headers=self.headers)
-            response.raise_for_status()
-            attachment_data = response.json()
-            
-            # Extract SQL query from attachment
-            query_text = attachment_data.get("query", {}).get("query", "")
-            if not query_text:
-                raise Exception("No SQL query found in attachment")
+        # Get the SQL query if not provided
+        if not query_text:
+            try:
+                # First get the attachment details to extract the SQL query
+                attachment_url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}"
+                self.update_headers(use_service_principal=True)  # Use service principal to get attachment details
+                response = requests.get(attachment_url, headers=self.headers)
+                response.raise_for_status()
+                attachment_data = response.json()
                 
-            logger.info(f"Executing SQL query: {query_text[:100]}...")
-            
-        except Exception as e:
-            logger.error(f"Error getting query from attachment: {str(e)}")
-            raise Exception(f"Failed to get query from attachment: {str(e)}")
+                # Extract SQL query from attachment
+                query_text = attachment_data.get("query", {}).get("query", "")
+                if not query_text:
+                    raise Exception("No SQL query found in attachment")
+                    
+            except Exception as e:
+                logger.error(f"Error getting query from attachment: {str(e)}")
+                raise Exception(f"Failed to get query from attachment: {str(e)}")
+        
+        logger.info(f"Executing SQL query: {query_text[:100]}...")
         
         # Execute query using Databricks SQL
         try:
@@ -470,7 +472,7 @@ def process_genie_response(client, conversation_id, message_id, complete_message
             # First execute the query using user token (our new method)
             try:
                 logger.info("Executing query using user token via Databricks SQL")
-                client.execute_query(conversation_id, message_id, attachment_id)
+                client.execute_query(conversation_id, message_id, attachment_id, query_text)
                 logger.info("Query execution completed successfully")
             except Exception as e:
                 logger.error(f"Query execution failed: {str(e)}")
