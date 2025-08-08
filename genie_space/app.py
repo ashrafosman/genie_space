@@ -1061,25 +1061,54 @@ def generate_insights(n_clicks, btn_id, chat_history):
         className="insight-output"
     )
 
-# Add callback for visualization button
+# Add callback for visualization button - using ALL to handle multiple buttons
 @app.callback(
     Output({"type": "viz-output", "index": dash.dependencies.MATCH}, "children"),
-    Input({"type": "viz-button", "index": dash.dependencies.MATCH}, "n_clicks"),
-    State({"type": "viz-button", "index": dash.dependencies.MATCH}, "id"),
+    Input({"type": "viz-button", "index": ALL}, "n_clicks"),
+    State({"type": "viz-button", "index": ALL}, "id"),
     State("chat-history-store", "data"),
     prevent_initial_call=True
 )
-def generate_visualizations(n_clicks, btn_id, chat_history):
-    if not n_clicks:
-        return None  # Don't show anything before click
+def generate_visualizations(n_clicks_list, btn_ids, chat_history):
+    # Get the callback context to handle multiple triggers
+    ctx = callback_context
+    if not ctx.triggered:
+        return no_update
     
-    table_id = btn_id["index"]
+    # Find which button was clicked
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    triggered_index = None
+    
+    # Find the index of the triggered button
+    for i, btn_id in enumerate(btn_ids):
+        if str(btn_id) == triggered_id:
+            triggered_index = i
+            break
+    
+    if triggered_index is None:
+        return no_update
+    
+    # Get the n_clicks for the triggered button
+    n_clicks = n_clicks_list[triggered_index] if n_clicks_list and len(n_clicks_list) > triggered_index else 0
+    
+    if not n_clicks:
+        return no_update  # Don't update if no clicks
+    
+    table_id = btn_ids[triggered_index]["index"]
+    
     # Retrieve the DataFrame from chat_history
     df = None
     if chat_history and len(chat_history) > 0:
         df_json = chat_history[0].get('dataframes', {}).get(table_id)
         if df_json:
-            df = pd.read_json(df_json, orient='split')
+            try:
+                df = pd.read_json(df_json, orient='split')
+            except Exception as e:
+                return html.Div(
+                    f"Error loading data: {str(e)}",
+                    style={"marginTop": "16px", "background": "#f8d7da", "padding": "16px", "borderRadius": "4px", "border": "1px solid #f5c6cb", "color": "#721c24"},
+                    className="viz-output"
+                )
     
     if df is None or df.empty:
         return html.Div(
@@ -1101,11 +1130,11 @@ def generate_visualizations(n_clicks, btn_id, chat_history):
             if len(numeric_cols) == 1:
                 # Single numeric column - create histogram
                 fig = px.histogram(df, x=numeric_cols[0], title=f"Distribution of {numeric_cols[0]}")
-                charts.append(dcc.Graph(figure=fig))
+                charts.append(dcc.Graph(figure=fig, config={'displayModeBar': True, 'displaylogo': False}))
             elif len(numeric_cols) >= 2:
                 # Multiple numeric columns - create scatter plot
                 fig = px.scatter(df, x=numeric_cols[0], y=numeric_cols[1], title=f"{numeric_cols[0]} vs {numeric_cols[1]}")
-                charts.append(dcc.Graph(figure=fig))
+                charts.append(dcc.Graph(figure=fig, config={'displayModeBar': True, 'displaylogo': False}))
         
         # 2. If we have categorical data, create bar chart
         if len(categorical_cols) > 0:
@@ -1113,14 +1142,14 @@ def generate_visualizations(n_clicks, btn_id, chat_history):
             for col in categorical_cols[:2]:  # Limit to first 2 categorical columns
                 value_counts = df[col].value_counts().head(10)  # Top 10 values
                 fig = px.bar(x=value_counts.index, y=value_counts.values, title=f"Top 10 {col} values")
-                charts.append(dcc.Graph(figure=fig))
+                charts.append(dcc.Graph(figure=fig, config={'displayModeBar': True, 'displaylogo': False}))
         
         # 3. If we have both numeric and categorical, create grouped chart
         if len(numeric_cols) > 0 and len(categorical_cols) > 0:
             # Group by categorical column and show numeric summary
             grouped = df.groupby(categorical_cols[0])[numeric_cols[0]].mean().sort_values(ascending=False).head(10)
             fig = px.bar(x=grouped.index, y=grouped.values, title=f"Average {numeric_cols[0]} by {categorical_cols[0]}")
-            charts.append(dcc.Graph(figure=fig))
+            charts.append(dcc.Graph(figure=fig, config={'displayModeBar': True, 'displaylogo': False}))
         
         # 4. If we have time series data, create line chart
         date_cols = df.select_dtypes(include=['datetime64']).columns.tolist()
@@ -1128,7 +1157,7 @@ def generate_visualizations(n_clicks, btn_id, chat_history):
             # Sort by date and plot numeric column
             df_sorted = df.sort_values(date_cols[0])
             fig = px.line(df_sorted, x=date_cols[0], y=numeric_cols[0], title=f"{numeric_cols[0]} over time")
-            charts.append(dcc.Graph(figure=fig))
+            charts.append(dcc.Graph(figure=fig, config={'displayModeBar': True, 'displaylogo': False}))
         
         if not charts:
             return html.Div(
