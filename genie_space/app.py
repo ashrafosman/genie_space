@@ -1,6 +1,7 @@
 import dash
 from dash import html, dcc, Input, Output, State, callback, ALL, MATCH, callback_context, no_update, clientside_callback, dash_table
 import dash_bootstrap_components as dbc
+import plotly.express as px
 from flask import request
 import flask
 import json
@@ -705,10 +706,16 @@ def get_model_response(trigger_data, current_messages, chat_history):
                 insight_output = dcc.Loading(id={"type": "insight-loading", "index": f"table-{len(chat_history)}"}, type="circle", color="#000000", children=html.Div(id={"type": "insight-output", "index": f"table-{len(chat_history)}"}))
                 insight_components = [insight_button, insight_output]
 
+            # Add visualization button
+            viz_button = html.Button("Visualize Data", id={"type": "viz-button", "index": f"table-{len(chat_history)}"}, className="viz-button", style={"border": "none", "background": "#007bff", "color": "white", "padding": "8px 16px", "borderRadius": "4px", "cursor": "pointer", "marginLeft": "8px"})
+            viz_output = dcc.Loading(id={"type": "viz-loading", "index": f"table-{len(chat_history)}"}, type="circle", color="#000000", children=html.Div(id={"type": "viz-output", "index": f"table-{len(chat_history)}"}))
+
             content_for_ui = html.Div([
                 html.Div([data_table], style={'marginBottom': '20px', 'paddingRight': '5px'}),
                 query_section if query_section else None,
-                *insight_components,
+                html.Div([viz_button, *insight_components], style={'display': 'flex', 'gap': '8px', 'marginTop': '16px'}),
+                viz_output,
+                *[comp for comp in insight_components if comp != insight_button],  # Add insight output after viz output
             ])
         
         # Now that the response is definitely a string, log it
@@ -1053,6 +1060,94 @@ def generate_insights(n_clicks, btn_id, chat_history):
         style={"marginTop": "32px", "background": "#f4f4f4", "padding": "16px", "borderRadius": "4px"},
         className="insight-output"
     )
+
+# Add callback for visualization button
+@app.callback(
+    Output({"type": "viz-output", "index": dash.dependencies.MATCH}, "children"),
+    Input({"type": "viz-button", "index": dash.dependencies.MATCH}, "n_clicks"),
+    State({"type": "viz-button", "index": dash.dependencies.MATCH}, "id"),
+    State("chat-history-store", "data"),
+    prevent_initial_call=True
+)
+def generate_visualizations(n_clicks, btn_id, chat_history):
+    if not n_clicks:
+        return None  # Don't show anything before click
+    
+    table_id = btn_id["index"]
+    # Retrieve the DataFrame from chat_history
+    df = None
+    if chat_history and len(chat_history) > 0:
+        df_json = chat_history[0].get('dataframes', {}).get(table_id)
+        if df_json:
+            df = pd.read_json(df_json, orient='split')
+    
+    if df is None or df.empty:
+        return html.Div(
+            "No data available for visualization.",
+            style={"marginTop": "16px", "background": "#f8d7da", "padding": "16px", "borderRadius": "4px", "border": "1px solid #f5c6cb", "color": "#721c24"},
+            className="viz-output"
+        )
+    
+    try:
+        # Auto-generate visualizations based on data types
+        charts = []
+        
+        # Get numeric columns
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        
+        # 1. If we have numeric data, create a histogram or bar chart
+        if len(numeric_cols) > 0:
+            if len(numeric_cols) == 1:
+                # Single numeric column - create histogram
+                fig = px.histogram(df, x=numeric_cols[0], title=f"Distribution of {numeric_cols[0]}")
+                charts.append(dcc.Graph(figure=fig))
+            elif len(numeric_cols) >= 2:
+                # Multiple numeric columns - create scatter plot
+                fig = px.scatter(df, x=numeric_cols[0], y=numeric_cols[1], title=f"{numeric_cols[0]} vs {numeric_cols[1]}")
+                charts.append(dcc.Graph(figure=fig))
+        
+        # 2. If we have categorical data, create bar chart
+        if len(categorical_cols) > 0:
+            # Count occurrences of categorical values
+            for col in categorical_cols[:2]:  # Limit to first 2 categorical columns
+                value_counts = df[col].value_counts().head(10)  # Top 10 values
+                fig = px.bar(x=value_counts.index, y=value_counts.values, title=f"Top 10 {col} values")
+                charts.append(dcc.Graph(figure=fig))
+        
+        # 3. If we have both numeric and categorical, create grouped chart
+        if len(numeric_cols) > 0 and len(categorical_cols) > 0:
+            # Group by categorical column and show numeric summary
+            grouped = df.groupby(categorical_cols[0])[numeric_cols[0]].mean().sort_values(ascending=False).head(10)
+            fig = px.bar(x=grouped.index, y=grouped.values, title=f"Average {numeric_cols[0]} by {categorical_cols[0]}")
+            charts.append(dcc.Graph(figure=fig))
+        
+        # 4. If we have time series data, create line chart
+        date_cols = df.select_dtypes(include=['datetime64']).columns.tolist()
+        if len(date_cols) > 0 and len(numeric_cols) > 0:
+            # Sort by date and plot numeric column
+            df_sorted = df.sort_values(date_cols[0])
+            fig = px.line(df_sorted, x=date_cols[0], y=numeric_cols[0], title=f"{numeric_cols[0]} over time")
+            charts.append(dcc.Graph(figure=fig))
+        
+        if not charts:
+            return html.Div(
+                "Unable to generate automatic visualizations for this data type.",
+                style={"marginTop": "16px", "background": "#fff3cd", "padding": "16px", "borderRadius": "4px", "border": "1px solid #ffeaa7", "color": "#856404"},
+                className="viz-output"
+            )
+        
+        return html.Div([
+            html.H4("Data Visualizations", style={"marginBottom": "16px", "color": "#333"}),
+            *charts
+        ], style={"marginTop": "16px"})
+        
+    except Exception as e:
+        return html.Div(
+            f"Error generating visualizations: {str(e)}",
+            style={"marginTop": "16px", "background": "#f8d7da", "padding": "16px", "borderRadius": "4px", "border": "1px solid #f5c6cb", "color": "#721c24"},
+            className="viz-output"
+        )
 
 if __name__ == "__main__":
     app.run_server(debug=True)

@@ -1328,6 +1328,22 @@ input:disabled, button:disabled {
     margin-top: 24px;
 } 
 
+.viz-button {
+    transition: background-color 0.2s ease;
+}
+
+.viz-button:hover {
+    background-color: #0056b3 !important;
+}
+
+.viz-output {
+    margin-top: 16px;
+}
+
+.viz-output .js-plotly-plot {
+    margin-bottom: 20px;
+}
+
 .insight-output strong, .insight-output b{
     color: #ff0396; /* Pinkish-purple */
     font-weight: 600;
