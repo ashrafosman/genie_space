@@ -206,7 +206,7 @@ class GenieClient:
         )
     )
     def execute_query(self, conversation_id: str, message_id: str, attachment_id: str) -> Dict[str, Any]:
-        """Execute a query using the attachment_id endpoint with user token only
+        """Execute a query using Databricks SQL with user token only
         
         Args:
             conversation_id: The ID of the conversation
@@ -220,50 +220,108 @@ class GenieClient:
             PermissionError: If user token is missing or doesn't have required permissions
             Exception: For other types of errors
         """
-        url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/execute-query"
-        
-        logger.info(f"Executing query at: {url}")
-        
         if not self.user_token:
             error_msg = "User token is required to execute queries. Please log in."
             logger.error(error_msg)
             raise PermissionError(error_msg)
-            
-        logger.info("Using user token for execute-query")
-        self.update_headers(use_service_principal=False)
         
+        # Get the SQL query from the attachment
         try:
-            response = requests.post(url, headers=self.headers)
+            # First get the attachment details to extract the SQL query
+            attachment_url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}"
+            self.update_headers(use_service_principal=True)  # Use service principal to get attachment details
+            response = requests.get(attachment_url, headers=self.headers)
+            response.raise_for_status()
+            attachment_data = response.json()
             
-            if response.status_code == 403:
-                error_response = response.text.strip()
-                if 'Invalid scope' in error_response:
-                    error_msg = """
-                    Authentication Error: Invalid token scope.
-                    
-                    The provided token doesn't have the required permissions to execute queries.
-                    This usually happens when the token is missing necessary OAuth scopes.
-                    
-                    Please ensure you're using a valid Databricks access token with the correct scopes.
-                    You may need to re-authenticate with the necessary permissions.
-                    """
-                else:
-                    error_msg = """
-                    Permission denied. Your account doesn't have the necessary permissions to execute queries.
-                    Please ensure you have the correct Databricks permissions and try again.
-                    
-                    If you believe this is an error, please contact your Databricks administrator.
-                    """
-                logger.error(f"Permission denied. Status: {response.status_code}, Response: {error_response}")
-                raise PermissionError(error_msg.strip())
+            # Extract SQL query from attachment
+            query_text = attachment_data.get("query", {}).get("query", "")
+            if not query_text:
+                raise Exception("No SQL query found in attachment")
                 
-            response.raise_for_status()  # This will raise for other 4XX/5XX errors
+            logger.info(f"Executing SQL query: {query_text[:100]}...")
             
-            return response.json()
+        except Exception as e:
+            logger.error(f"Error getting query from attachment: {str(e)}")
+            raise Exception(f"Failed to get query from attachment: {str(e)}")
+        
+        # Execute query using Databricks SQL
+        try:
+            import os
+            from databricks import sql
             
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error executing query: {str(e)}")
-            raise Exception(f"Failed to execute query: {str(e)}")
+            # Get environment variables
+            server_hostname = os.getenv("DATABRICKS_HOST")
+            http_path = os.getenv("DATABRICKS_SQL_HTTP_PATH")
+            
+            if not (server_hostname and http_path):
+                raise ValueError("DATABRICKS_HOST and DATABRICKS_SQL_HTTP_PATH environment variables must be set")
+            
+            # Use user token for SQL execution
+            logger.info("Using user token for Databricks SQL execution")
+            
+            connection_params = {
+                "server_hostname": server_hostname,
+                "http_path": http_path,
+                "access_token": self.user_token
+            }
+            
+            # Add user context if possible
+            try:
+                import base64
+                import json
+                parts = self.user_token.split('.')
+                if len(parts) >= 2:
+                    payload_part = parts[1]
+                    payload_part += '=' * (4 - len(payload_part) % 4)
+                    decoded = base64.b64decode(payload_part)
+                    token_data = json.loads(decoded)
+                    user_email = token_data.get('email') or token_data.get('sub') or token_data.get('preferred_username')
+                    if user_email:
+                        connection_params["_user_id"] = user_email
+                        logger.info(f"Adding user context to SQL connection: {user_email}")
+            except Exception as e:
+                logger.warning(f"Could not add user context to SQL connection: {e}")
+            
+            with sql.connect(**connection_params) as connection:
+                cursor = connection.cursor()
+                cursor.execute(query_text)
+                
+                # Get results
+                result = cursor.fetchall()
+                columns = [desc[0] for desc in cursor.description] if cursor.description else []
+                
+                # Convert to the expected format
+                data_array = [list(row) for row in result]
+                
+                return {
+                    "statement_response": {
+                        "result": {
+                            "data_array": data_array
+                        },
+                        "manifest": {
+                            "schema": {
+                                "columns": [{"name": col} for col in columns]
+                            }
+                        }
+                    }
+                }
+                
+        except Exception as e:
+            logger.error(f"Error executing query via Databricks SQL: {str(e)}")
+            if "403" in str(e) or "Forbidden" in str(e):
+                error_msg = """
+                Authentication Error: Invalid token scope.
+                
+                The provided token doesn't have the required permissions to execute SQL queries.
+                This usually happens when the token is missing necessary OAuth scopes.
+                
+                Please ensure you're using a valid Databricks access token with the correct scopes.
+                You may need to re-authenticate with the necessary permissions.
+                """
+                raise PermissionError(error_msg.strip())
+            else:
+                raise Exception(f"Failed to execute query via Databricks SQL: {str(e)}")
     
 
     def wait_for_message_completion(self, conversation_id: str, message_id: str, timeout: int = 300, poll_interval: int = 2) -> Dict[str, Any]:
