@@ -184,13 +184,25 @@ class GenieClient:
             response = requests.get(query_result_url, headers=self.headers)
             
             if response.status_code == 403:
-                error_msg = """
-                Permission denied. Your account doesn't have the necessary permissions to view query results.
-                Please ensure you have the correct Databricks permissions and try again.
-                
-                If you believe this is an error, please contact your Databricks administrator.
-                """
-                logger.error(f"Permission denied. Response: {response.text}")
+                error_response = response.text.strip()
+                if 'Invalid scope' in error_response:
+                    error_msg = """
+                    Authentication Error: Invalid token scope.
+                    
+                    The provided token doesn't have the required permissions to access query results.
+                    This usually happens when the token is missing necessary OAuth scopes.
+                    
+                    Please ensure you're using a valid Databricks access token with the correct scopes.
+                    You may need to re-authenticate with the necessary permissions.
+                    """
+                else:
+                    error_msg = """
+                    Permission denied. Your account doesn't have the necessary permissions to view query results.
+                    Please ensure you have the correct Databricks permissions and try again.
+                    
+                    If you believe this is an error, please contact your Databricks administrator.
+                    """
+                logger.error(f"Permission denied. Status: {response.status_code}, Response: {error_response}")
                 raise PermissionError(error_msg.strip())
                 
             response.raise_for_status()  # This will raise for other 4XX/5XX errors
