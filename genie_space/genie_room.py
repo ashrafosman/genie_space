@@ -154,7 +154,7 @@ class GenieClient:
         return response.json()
 
     def get_query_result(self, conversation_id: str, message_id: str, attachment_id: str) -> Dict[str, Any]:
-        """Get the query result using the attachment_id endpoint with user token only
+        """Get the query result using the attachment_id endpoint with service principal
         
         Args:
             conversation_id: The ID of the conversation
@@ -165,47 +165,18 @@ class GenieClient:
             Dict containing the query result
             
         Raises:
-            PermissionError: If user token is missing or doesn't have required permissions
-            Exception: For other types of errors
+            Exception: For any request errors
         """
         query_result_url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/query-result"
         
         logger.info(f"Attempting to get query result from: {query_result_url}")
         
-        if not self.user_token:
-            error_msg = "User token is required to fetch query results. Please log in."
-            logger.error(error_msg)
-            raise PermissionError(error_msg)
-            
-        logger.info("Using user token for query-result")
-        self.update_headers(use_service_principal=False)
+        logger.info("Using service principal for query-result")
+        self.update_headers(use_service_principal=True)
         
         try:
             response = requests.get(query_result_url, headers=self.headers)
-            
-            if response.status_code == 403:
-                error_response = response.text.strip()
-                if 'Invalid scope' in error_response:
-                    error_msg = """
-                    Authentication Error: Invalid token scope.
-                    
-                    The provided token doesn't have the required permissions to access query results.
-                    This usually happens when the token is missing necessary OAuth scopes.
-                    
-                    Please ensure you're using a valid Databricks access token with the correct scopes.
-                    You may need to re-authenticate with the necessary permissions.
-                    """
-                else:
-                    error_msg = """
-                    Permission denied. Your account doesn't have the necessary permissions to view query results.
-                    Please ensure you have the correct Databricks permissions and try again.
-                    
-                    If you believe this is an error, please contact your Databricks administrator.
-                    """
-                logger.error(f"Permission denied. Status: {response.status_code}, Response: {error_response}")
-                raise PermissionError(error_msg.strip())
-                
-            response.raise_for_status()  # This will raise for other 4XX/5XX errors
+            response.raise_for_status()  # This will raise for any 4XX/5XX errors
             
             result = response.json()
             
