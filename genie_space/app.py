@@ -13,6 +13,7 @@ import sqlparse
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
 import uuid
+import time
 from datetime import datetime, date
 from databricks import sql
 from token_minter import TokenMinter
@@ -666,6 +667,9 @@ def get_model_response(trigger_data, current_messages, chat_history):
             # It's a DataFrame, so process it accordingly
             df = pd.DataFrame(response)
             
+            # Create unique ID for this table
+            unique_id = f"table-{len(chat_history)}-{len(current_messages)}-{int(time.time() * 1000)}"
+            
             # Use .to_json() for logging DataFrames
             response_for_log = df.to_json(orient='split')
 
@@ -706,9 +710,7 @@ def get_model_response(trigger_data, current_messages, chat_history):
                 insight_output = dcc.Loading(id={"type": "insight-loading", "index": unique_id}, type="circle", color="#000000", children=html.Div(id={"type": "insight-output", "index": unique_id}))
                 insight_components = [insight_button, insight_output]
 
-            # Add visualization button with unique ID based on conversation, message, and timestamp
-            import time
-            unique_id = f"table-{len(chat_history)}-{len(current_messages)}-{int(time.time() * 1000)}"
+            # Add visualization button
             viz_button = html.Button("Visualize Data", id={"type": "viz-button", "index": unique_id}, className="viz-button", style={"border": "none", "background": "#007bff", "color": "white", "padding": "8px 16px", "borderRadius": "4px", "cursor": "pointer", "marginLeft": "8px"})
             viz_output = dcc.Loading(id={"type": "viz-loading", "index": unique_id}, type="circle", color="#000000", children=html.Div(id={"type": "viz-output", "index": unique_id}))
 
