@@ -108,7 +108,7 @@ class GenieClient:
                 logger.info("User credentials worked for start-conversation!")
         else:
             logger.info("No user token available, using service principal for start-conversation")
-            self.update_headers(use_user_token=False)
+            self.update_headers(use_service_principal=True)
             response = requests.post(url, headers=self.headers, json=payload)
         
         response.raise_for_status()
@@ -207,22 +207,22 @@ class GenieClient:
                 
             response.raise_for_status()  # This will raise for other 4XX/5XX errors
             
-            return response.json()
+            result = response.json()
+            
+            # Extract data_array from the correct nested location
+            data_array = []
+            if 'statement_response' in result:
+                if 'result' in result['statement_response']:
+                    data_array = result['statement_response']['result'].get('data_array', [])
+                
+            return {
+                'data_array': data_array,
+                'schema': result.get('statement_response', {}).get('manifest', {}).get('schema', {})
+            }
             
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching query result: {str(e)}")
             raise Exception(f"Failed to fetch query result: {str(e)}")
-        
-        # Extract data_array from the correct nested location
-        data_array = []
-        if 'statement_response' in result:
-            if 'result' in result['statement_response']:
-                data_array = result['statement_response']['result'].get('data_array', [])
-            
-        return {
-                    'data_array': data_array,
-                    'schema': result.get('statement_response', {}).get('manifest', {}).get('schema', {})
-                }
 
     @backoff.on_exception(
         backoff.expo,
@@ -235,50 +235,64 @@ class GenieClient:
         )
     )
     def execute_query(self, conversation_id: str, message_id: str, attachment_id: str) -> Dict[str, Any]:
-        """Execute a query using the attachment_id endpoint"""
+        """Execute a query using the attachment_id endpoint with user token only
+        
+        Args:
+            conversation_id: The ID of the conversation
+            message_id: The ID of the message
+            attachment_id: The ID of the attachment containing the query
+            
+        Returns:
+            Dict containing the query execution result
+            
+        Raises:
+            PermissionError: If user token is missing or doesn't have required permissions
+            Exception: For other types of errors
+        """
         url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}/attachments/{attachment_id}/execute-query"
         
         logger.info(f"Executing query at: {url}")
         
-        # Try with user token first if available
-        if self.user_token:
-            logger.info("Attempt 1: Using user token directly for execute-query")
-            self.update_headers(use_service_principal=False)
-            response = requests.post(url, headers=self.headers)
-            logger.info(f"User token attempt status: {response.status_code}")
+        if not self.user_token:
+            error_msg = "User token is required to execute queries. Please log in."
+            logger.error(error_msg)
+            raise PermissionError(error_msg)
             
-            if response.status_code == 200:
-                logger.info("Success with user token")
-                return response.json()
-            elif response.status_code in [401, 403]:
-                logger.warning(f"User token failed with {response.status_code}, trying service principal with user context headers")
-                logger.warning(f"Error response body: {response.text}")
-                
-                # Try with service principal + user context headers
-                self.update_headers(use_service_principal=True, add_user_context=True)
-                response = requests.post(url, headers=self.headers)
-                logger.info(f"Service principal + user context headers status: {response.status_code}")
-                
-                if response.status_code == 200:
-                    logger.info("Success with service principal + user context headers")
-                    return response.json()
-                else:
-                    logger.warning(f"Service principal + user context failed with {response.status_code}, trying plain service principal")
-                    
-                    # Fall back to plain service principal
-                    self.update_headers(use_service_principal=True, add_user_context=False)
-                    response = requests.post(url, headers=self.headers)
-                    response.raise_for_status()
-                    return response.json()
-            else:
-                response.raise_for_status()
-                return response.json()
-        else:
-            logger.info("No user token available, using service principal")
-            self.update_headers(use_user_token=False)
+        logger.info("Using user token for execute-query")
+        self.update_headers(use_service_principal=False)
+        
+        try:
             response = requests.post(url, headers=self.headers)
-            response.raise_for_status()
+            
+            if response.status_code == 403:
+                error_response = response.text.strip()
+                if 'Invalid scope' in error_response:
+                    error_msg = """
+                    Authentication Error: Invalid token scope.
+                    
+                    The provided token doesn't have the required permissions to execute queries.
+                    This usually happens when the token is missing necessary OAuth scopes.
+                    
+                    Please ensure you're using a valid Databricks access token with the correct scopes.
+                    You may need to re-authenticate with the necessary permissions.
+                    """
+                else:
+                    error_msg = """
+                    Permission denied. Your account doesn't have the necessary permissions to execute queries.
+                    Please ensure you have the correct Databricks permissions and try again.
+                    
+                    If you believe this is an error, please contact your Databricks administrator.
+                    """
+                logger.error(f"Permission denied. Status: {response.status_code}, Response: {error_response}")
+                raise PermissionError(error_msg.strip())
+                
+            response.raise_for_status()  # This will raise for other 4XX/5XX errors
+            
             return response.json()
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error executing query: {str(e)}")
+            raise Exception(f"Failed to execute query: {str(e)}")
     
 
     def wait_for_message_completion(self, conversation_id: str, message_id: str, timeout: int = 300, poll_interval: int = 2) -> Dict[str, Any]:
