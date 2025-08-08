@@ -463,9 +463,20 @@ def process_genie_response(client, conversation_id, message_id, complete_message
         if "text" in attachment and "content" in attachment["text"]:
             return attachment["text"]["content"], None
         
-        # If there's a query, get the result
+        # If there's a query, execute it first then get the result
         elif "query" in attachment:
             query_text = attachment.get("query", {}).get("query", "")
+            
+            # First execute the query using user token (our new method)
+            try:
+                logger.info("Executing query using user token via Databricks SQL")
+                client.execute_query(conversation_id, message_id, attachment_id)
+                logger.info("Query execution completed successfully")
+            except Exception as e:
+                logger.error(f"Query execution failed: {str(e)}")
+                return f"Query execution failed: {str(e)}", query_text
+            
+            # Then get the query result using service principal
             query_result = client.get_query_result(conversation_id, message_id, attachment_id)
            
             data_array = query_result.get('data_array', [])
