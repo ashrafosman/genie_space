@@ -81,36 +81,44 @@ class GenieClient:
         )
     )
     def start_conversation(self, question: str) -> Dict[str, Any]:
-        """Start a new conversation with the given question"""
+        """Start a new conversation with the given question using user token only.
+
+        Raises:
+            PermissionError: If user token is missing or lacks required scopes/permissions
+        """
         url = f"{self.base_url}/start-conversation"
         payload = {"content": question}
-        
-        # Try with user token first if available
-        if self.user_token:
-            logger.info(f"Using user credentials for start-conversation. URL: {url}")
-            logger.info(f"User token length: {len(self.user_token)}")
-            self.update_headers(use_service_principal=False)
-            logger.info(f"Request headers: {self.headers}")
-            logger.info(f"Request payload: {payload}")
-            
-            response = requests.post(url, headers=self.headers, json=payload)
-            logger.info(f"User token response status: {response.status_code}")
-            
-            # If user token fails, fall back to service principal
-            if response.status_code in [401, 403]:
-                logger.warning(f"User token failed with {response.status_code} for start-conversation, falling back to service principal")
-                logger.warning(f"Error response: {response.text}")
-                logger.warning(f"Error headers: {dict(response.headers)}")
-                self.update_headers(use_service_principal=True)
-                response = requests.post(url, headers=self.headers, json=payload)
-                logger.info(f"Service principal fallback status: {response.status_code}")
+
+        if not self.user_token:
+            error_msg = "User token is required to start a conversation. Please log in."
+            logger.error(error_msg)
+            raise PermissionError(error_msg)
+
+        logger.info(f"Using user credentials for start-conversation. URL: {url}")
+        logger.info(f"User token length: {len(self.user_token)}")
+        self.update_headers(use_service_principal=False)
+        logger.info(f"Request headers: {self.headers}")
+        logger.info(f"Request payload: {payload}")
+
+        response = requests.post(url, headers=self.headers, json=payload)
+        logger.info(f"User token response status: {response.status_code}")
+
+        if response.status_code == 403:
+            error_response = response.text.strip()
+            if "Invalid scope" in error_response:
+                error_msg = (
+                    "Authentication Error: Invalid token scope.\n\n"
+                    "The provided token doesn't have the required permissions to start a conversation.\n"
+                    "Ensure your Databricks access token includes the necessary OAuth scopes and try again."
+                )
             else:
-                logger.info("User credentials worked for start-conversation!")
-        else:
-            logger.info("No user token available, using service principal for start-conversation")
-            self.update_headers(use_service_principal=True)
-            response = requests.post(url, headers=self.headers, json=payload)
-        
+                error_msg = (
+                    "Permission denied. Your account doesn't have the necessary permissions to start a conversation.\n"
+                    "Please verify your Databricks permissions or contact your administrator."
+                )
+            logger.error(f"Permission denied. Status: {response.status_code}, Response: {error_response}")
+            raise PermissionError(error_msg)
+
         response.raise_for_status()
         return response.json()
     
@@ -125,12 +133,34 @@ class GenieClient:
         )
     )
     def send_message(self, conversation_id: str, message: str) -> Dict[str, Any]:
-        """Send a follow-up message to an existing conversation"""
-        self.update_headers(use_service_principal=True)  # Use service principal for conversation management
+        """Send a follow-up message to an existing conversation using user token only."""
+        if not self.user_token:
+            error_msg = "User token is required to send a message. Please log in."
+            logger.error(error_msg)
+            raise PermissionError(error_msg)
+
+        self.update_headers(use_service_principal=False)
         url = f"{self.base_url}/conversations/{conversation_id}/messages"
         payload = {"content": message}
-        
+
         response = requests.post(url, headers=self.headers, json=payload)
+
+        if response.status_code == 403:
+            error_response = response.text.strip()
+            if "Invalid scope" in error_response:
+                error_msg = (
+                    "Authentication Error: Invalid token scope.\n\n"
+                    "The provided token doesn't have the required permissions to send messages.\n"
+                    "Ensure your Databricks access token includes the necessary OAuth scopes and try again."
+                )
+            else:
+                error_msg = (
+                    "Permission denied. Your account doesn't have the necessary permissions to send messages.\n"
+                    "Please verify your Databricks permissions or contact your administrator."
+                )
+            logger.error(f"Permission denied. Status: {response.status_code}, Response: {error_response}")
+            raise PermissionError(error_msg)
+
         response.raise_for_status()
         return response.json()
 
@@ -145,11 +175,33 @@ class GenieClient:
         )
     )
     def get_message(self, conversation_id: str, message_id: str) -> Dict[str, Any]:
-        """Get the details of a specific message"""
-        self.update_headers(use_service_principal=True)  # Use service principal for message management
+        """Get the details of a specific message using user token only."""
+        if not self.user_token:
+            error_msg = "User token is required to get message details. Please log in."
+            logger.error(error_msg)
+            raise PermissionError(error_msg)
+
+        self.update_headers(use_service_principal=False)
         url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}"
-        
+
         response = requests.get(url, headers=self.headers)
+
+        if response.status_code == 403:
+            error_response = response.text.strip()
+            if "Invalid scope" in error_response:
+                error_msg = (
+                    "Authentication Error: Invalid token scope.\n\n"
+                    "The provided token doesn't have the required permissions to view message details.\n"
+                    "Ensure your Databricks access token includes the necessary OAuth scopes and try again."
+                )
+            else:
+                error_msg = (
+                    "Permission denied. Your account doesn't have the necessary permissions to view message details.\n"
+                    "Please verify your Databricks permissions or contact your administrator."
+                )
+            logger.error(f"Permission denied. Status: {response.status_code}, Response: {error_response}")
+            raise PermissionError(error_msg)
+
         response.raise_for_status()
         return response.json()
 
