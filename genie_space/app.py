@@ -133,8 +133,7 @@ def log_genie_conversation(
 
 
 endpoint_name = os.getenv("SERVING_ENDPOINT_NAME")
-if not endpoint_name:
-    raise ValueError("SERVING_ENDPOINT_NAME environment variable is not set.")
+# Make SERVING_ENDPOINT_NAME optional - if not set, insights feature will be disabled
 
 # Create Dash app
 app = dash.Dash(
@@ -699,14 +698,17 @@ def get_model_response(trigger_data, current_messages, chat_history):
                     html.Div([html.Pre([html.Code(formatted_sql, className="sql-code")], className="sql-pre")], id={"type": "query-code", "index": query_index}, className="query-code-container hidden")
                 ], id={"type": "query-section", "index": query_index}, className="query-section")
 
-            insight_button = html.Button("Generate Insights", id={"type": "insight-button", "index": f"table-{len(chat_history)}"}, className="insight-button", style={"border": "none", "background": "#f0f0f0", "padding": "8px 16px", "borderRadius": "4px", "cursor": "pointer"})
-            insight_output = dcc.Loading(id={"type": "insight-loading", "index": f"table-{len(chat_history)}"}, type="circle", color="#000000", children=html.Div(id={"type": "insight-output", "index": f"table-{len(chat_history)}"}))
+            # Only show insight button if SERVING_ENDPOINT_NAME is configured
+            insight_components = []
+            if endpoint_name:
+                insight_button = html.Button("Generate Insights", id={"type": "insight-button", "index": f"table-{len(chat_history)}"}, className="insight-button", style={"border": "none", "background": "#f0f0f0", "padding": "8px 16px", "borderRadius": "4px", "cursor": "pointer"})
+                insight_output = dcc.Loading(id={"type": "insight-loading", "index": f"table-{len(chat_history)}"}, type="circle", color="#000000", children=html.Div(id={"type": "insight-output", "index": f"table-{len(chat_history)}"}))
+                insight_components = [insight_button, insight_output]
 
             content_for_ui = html.Div([
                 html.Div([data_table], style={'marginBottom': '20px', 'paddingRight': '5px'}),
                 query_section if query_section else None,
-                insight_button,
-                insight_output,
+                *insight_components,
             ])
         
         # Now that the response is definitely a string, log it
@@ -1027,6 +1029,15 @@ def handle_modal_actions(save_clicks, close_clicks,
 def generate_insights(n_clicks, btn_id, chat_history):
     if not n_clicks:
         return None  # Don't show anything before click
+    
+    # Check if SERVING_ENDPOINT_NAME is configured
+    if not endpoint_name:
+        return html.Div(
+            "Insights feature is not available. SERVING_ENDPOINT_NAME environment variable is not configured.",
+            style={"marginTop": "32px", "background": "#fff3cd", "padding": "16px", "borderRadius": "4px", "border": "1px solid #ffeaa7", "color": "#856404"},
+            className="insight-output"
+        )
+    
     table_id = btn_id["index"]
     # Retrieve the DataFrame from chat_history
     df = None
