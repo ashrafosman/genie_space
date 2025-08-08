@@ -126,7 +126,7 @@ class GenieClient:
     )
     def send_message(self, conversation_id: str, message: str) -> Dict[str, Any]:
         """Send a follow-up message to an existing conversation"""
-        self.update_headers()  # Use service principal for conversation management
+        self.update_headers(use_service_principal=True)  # Use service principal for conversation management
         url = f"{self.base_url}/conversations/{conversation_id}/messages"
         payload = {"content": message}
         
@@ -146,7 +146,7 @@ class GenieClient:
     )
     def get_message(self, conversation_id: str, message_id: str) -> Dict[str, Any]:
         """Get the details of a specific message"""
-        self.update_headers()  # Use service principal for message management
+        self.update_headers(use_service_principal=True)  # Use service principal for message management
         url = f"{self.base_url}/conversations/{conversation_id}/messages/{message_id}"
         
         response = requests.get(url, headers=self.headers)
