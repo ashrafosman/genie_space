@@ -328,6 +328,8 @@ def start_new_conversation(question: str, user_token: str = None) -> Tuple[str, 
         - response: Either text or DataFrame response
         - query_text: SQL query text if applicable, otherwise None
     """
+    import logging
+    logging.info(f"User token received: {user_token}")
     
     client = GenieClient(
         host=DATABRICKS_HOST,
