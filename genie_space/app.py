@@ -670,12 +670,12 @@ def get_model_response(trigger_data, current_messages, chat_history):
             response_for_log = df.to_json(orient='split')
 
             if chat_history and len(chat_history) > 0:
-                chat_history[0].setdefault('dataframes', {})[f"table-{len(chat_history)}"] = response_for_log
+                chat_history[0].setdefault('dataframes', {})[unique_id] = response_for_log
             else:
-                chat_history = [{"dataframes": {f"table-{len(chat_history)}": response_for_log}}]
+                chat_history = [{"dataframes": {unique_id: response_for_log}}]
 
             data_table = dash_table.DataTable(
-                id=f"table-{len(chat_history)}",
+                id=unique_id,
                 data=df.to_dict('records'),
                 columns=[{"name": i, "id": i} for i in df.columns],
                 export_format="csv",
@@ -702,13 +702,15 @@ def get_model_response(trigger_data, current_messages, chat_history):
             # Only show insight button if SERVING_ENDPOINT_NAME is configured
             insight_components = []
             if endpoint_name:
-                insight_button = html.Button("Generate Insights", id={"type": "insight-button", "index": f"table-{len(chat_history)}"}, className="insight-button", style={"border": "none", "background": "#f0f0f0", "padding": "8px 16px", "borderRadius": "4px", "cursor": "pointer"})
-                insight_output = dcc.Loading(id={"type": "insight-loading", "index": f"table-{len(chat_history)}"}, type="circle", color="#000000", children=html.Div(id={"type": "insight-output", "index": f"table-{len(chat_history)}"}))
+                insight_button = html.Button("Generate Insights", id={"type": "insight-button", "index": unique_id}, className="insight-button", style={"border": "none", "background": "#f0f0f0", "padding": "8px 16px", "borderRadius": "4px", "cursor": "pointer"})
+                insight_output = dcc.Loading(id={"type": "insight-loading", "index": unique_id}, type="circle", color="#000000", children=html.Div(id={"type": "insight-output", "index": unique_id}))
                 insight_components = [insight_button, insight_output]
 
-            # Add visualization button
-            viz_button = html.Button("Visualize Data", id={"type": "viz-button", "index": f"table-{len(chat_history)}"}, className="viz-button", style={"border": "none", "background": "#007bff", "color": "white", "padding": "8px 16px", "borderRadius": "4px", "cursor": "pointer", "marginLeft": "8px"})
-            viz_output = dcc.Loading(id={"type": "viz-loading", "index": f"table-{len(chat_history)}"}, type="circle", color="#000000", children=html.Div(id={"type": "viz-output", "index": f"table-{len(chat_history)}"}))
+            # Add visualization button with unique ID based on conversation, message, and timestamp
+            import time
+            unique_id = f"table-{len(chat_history)}-{len(current_messages)}-{int(time.time() * 1000)}"
+            viz_button = html.Button("Visualize Data", id={"type": "viz-button", "index": unique_id}, className="viz-button", style={"border": "none", "background": "#007bff", "color": "white", "padding": "8px 16px", "borderRadius": "4px", "cursor": "pointer", "marginLeft": "8px"})
+            viz_output = dcc.Loading(id={"type": "viz-loading", "index": unique_id}, type="circle", color="#000000", children=html.Div(id={"type": "viz-output", "index": unique_id}))
 
             content_for_ui = html.Div([
                 html.Div([data_table], style={'marginBottom': '20px', 'paddingRight': '5px'}),
@@ -1061,40 +1063,19 @@ def generate_insights(n_clicks, btn_id, chat_history):
         className="insight-output"
     )
 
-# Add callback for visualization button - using ALL to handle multiple buttons
+# Add callback for visualization button - simplified approach
 @app.callback(
     Output({"type": "viz-output", "index": dash.dependencies.MATCH}, "children"),
-    Input({"type": "viz-button", "index": ALL}, "n_clicks"),
-    State({"type": "viz-button", "index": ALL}, "id"),
+    Input({"type": "viz-button", "index": dash.dependencies.MATCH}, "n_clicks"),
+    State({"type": "viz-button", "index": dash.dependencies.MATCH}, "id"),
     State("chat-history-store", "data"),
     prevent_initial_call=True
 )
-def generate_visualizations(n_clicks_list, btn_ids, chat_history):
-    # Get the callback context to handle multiple triggers
-    ctx = callback_context
-    if not ctx.triggered:
-        return no_update
-    
-    # Find which button was clicked
-    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    triggered_index = None
-    
-    # Find the index of the triggered button
-    for i, btn_id in enumerate(btn_ids):
-        if str(btn_id) == triggered_id:
-            triggered_index = i
-            break
-    
-    if triggered_index is None:
-        return no_update
-    
-    # Get the n_clicks for the triggered button
-    n_clicks = n_clicks_list[triggered_index] if n_clicks_list and len(n_clicks_list) > triggered_index else 0
-    
+def generate_visualizations(n_clicks, btn_id, chat_history):
     if not n_clicks:
         return no_update  # Don't update if no clicks
     
-    table_id = btn_ids[triggered_index]["index"]
+    table_id = btn_id["index"]
     
     # Retrieve the DataFrame from chat_history
     df = None
