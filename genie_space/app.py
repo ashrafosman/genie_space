@@ -509,6 +509,12 @@ def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, s
             "messages": updated_messages
         })
 
+    # Maintain plain-text turns for LLM context
+    session_entry = chat_history[current_session] if current_session < len(chat_history) else chat_history[0]
+    if 'turns' not in session_entry:
+        session_entry['turns'] = []
+    session_entry['turns'].append({"role": "user", "content": user_input})
+
     # Update chat list
     updated_chat_list = []
     for i, session in enumerate(chat_history):
@@ -659,8 +665,19 @@ def get_model_response(trigger_data, current_messages, chat_history):
         else:
             print("DEBUG: Failed to obtain service principal token; falling back will raise")
 
+        # Build conversation context from stored turns
+        conversation = []
+        if chat_history and len(chat_history) > 0:
+            conversation = chat_history[0].get('turns', [])
+
         # Execute with service principal (SPOBO). `forwarded_user_token` is kept for audit/attribution only.
-        response, query_text = genie_query(user_input, sp_token)
+        try:
+            response, query_text = genie_query(user_input, sp_token, conversation=conversation)
+        except TypeError:
+            # Fallback: stitch last 10 turns into the prompt
+            history_text = "\n".join([f"{t.get('role','user').upper()}: {t.get('content','')}" for t in conversation[-10:]])
+            stitched_prompt = f"{history_text}\nUSER: {user_input}" if history_text else user_input
+            response, query_text = genie_query(stitched_prompt, sp_token)
         
         # Prepare variables for logging and UI content
         response_for_log = ""
@@ -735,7 +752,21 @@ def get_model_response(trigger_data, current_messages, chat_history):
                 viz_output,
                 insight_output,
             ])
-        
+
+        # Append assistant turn for future context
+        assistant_text_for_history = None
+        if isinstance(response, str):
+            assistant_text_for_history = response
+        else:
+            try:
+                df_for_hist = pd.DataFrame(response)
+                assistant_text_for_history = f"TABLE_RESULT columns={list(df_for_hist.columns)} rows={len(df_for_hist)}"
+            except Exception:
+                assistant_text_for_history = "(non-text response)"
+
+        if chat_history and len(chat_history) > 0:
+            chat_history[0].setdefault('turns', []).append({"role": "assistant", "content": assistant_text_for_history})
+
         # Now that the response is definitely a string, log it
         end_time = datetime.now()
         execution_duration_ms = int((end_time - start_time).total_seconds() * 1000)

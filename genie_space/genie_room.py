@@ -500,22 +500,38 @@ def process_genie_response(client, conversation_id, message_id, complete_message
     
     return "No response available", None
 
-def genie_query(question: str, user_token: str = None) -> Union[Tuple[str, Optional[str]], Tuple[pd.DataFrame, str]]:
+def genie_query(
+    question: str,
+    user_token: str = None,
+    conversation: Optional[List[Dict[str, str]]] = None
+) -> Union[Tuple[str, Optional[str]], Tuple[pd.DataFrame, str]]:
     """
     Main entry point for querying Genie.
     
     Args:
         question: The question to ask
         user_token: User access token from X-Forwarded-Access-Token header
+        conversation: List of chat turns (dicts with {role, content}), used to stitch the last 10 turns into the prompt.
         
     Returns:
         Tuple containing either:
         - (text_response, None) for text responses
         - (dataframe, sql_query) for data responses
     """
+    # If full conversation is provided, stitch the last 10 turns into the prompt
+    stitched_question = question
+    if conversation:
+        try:
+            history_text = "\n".join([
+                f"{(t.get('role') or 'user').upper()}: {t.get('content','')}" for t in conversation[-10:]
+            ])
+            if history_text:
+                stitched_question = f"{history_text}\nUSER: {question}"
+        except Exception as e:
+            logger.warning(f"Failed to stitch conversation history: {e}")
     try:
         # Start a new conversation for each query
-        conversation_id, result, query_text = start_new_conversation(question, user_token)
+        conversation_id, result, query_text = start_new_conversation(stitched_question, user_token)
         return result, query_text
             
     except Exception as e:
