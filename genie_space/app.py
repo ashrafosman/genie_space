@@ -638,22 +638,29 @@ def get_model_response(trigger_data, current_messages, chat_history):
 
     try:
         # Get user token from X-Forwarded-Access-Token header
-        user_token = None
+        forwarded_user_token = None
         try:
             if hasattr(flask.request, 'headers'):
-                user_token = flask.request.headers.get('X-Forwarded-Access-Token')
-                if user_token:
-                    print(f"DEBUG: Found user token (length: {len(user_token)})")
+                forwarded_user_token = flask.request.headers.get('X-Forwarded-Access-Token')
+                if forwarded_user_token:
+                    print(f"DEBUG: Found forwarded user token (length: {len(forwarded_user_token)})")
                 else:
                     print("DEBUG: No X-Forwarded-Access-Token header found")
                     # Let's also check what headers are available
                     print(f"DEBUG: Available headers: {list(flask.request.headers.keys())}")
         except Exception as e:
-            print(f"DEBUG: Error extracting user token: {e}")
+            print(f"DEBUG: Error extracting forwarded user token: {e}")
             pass
-            
-        # Get the raw response from the query function
-        response, query_text = genie_query(user_input, user_token)
+
+        # Use service principal token for on-behalf-of execution
+        sp_token = token_minter.get_token()
+        if sp_token:
+            print(f"DEBUG: Using service principal token for execution (length: {len(sp_token)})")
+        else:
+            print("DEBUG: Failed to obtain service principal token; falling back will raise")
+
+        # Execute with service principal (SPOBO). `forwarded_user_token` is kept for audit/attribution only.
+        response, query_text = genie_query(user_input, sp_token)
         
         # Prepare variables for logging and UI content
         response_for_log = ""
