@@ -18,6 +18,7 @@ from datetime import datetime, date
 from databricks import sql
 from token_minter import TokenMinter
 load_dotenv()
+USER_EMAIL = get_requester_identity()
 
 CLIENT_ID = os.getenv("DATABRICKS_CLIENT_ID")
 CLIENT_SECRET = os.getenv("DATABRICKS_CLIENT_SECRET")
@@ -186,7 +187,16 @@ app.layout = html.Div([
             html.Div("Genie Space", id="logo-container", className="logo-container")
         ], className="nav-center"),
         html.Div([
-            html.Div("Y", className="user-avatar"),
+            html.Div([
+                html.Div(
+                    USER_EMAIL[0].upper() if USER_EMAIL else "U",
+                    className="user-avatar"
+                ),
+                html.Div(
+                    USER_EMAIL,
+                    className="user-email-display"
+                )
+            ], style={"display": "flex", "alignItems": "center", "gap": "8px"}),
             html.A(
                 html.Button(
                     "Logout",
