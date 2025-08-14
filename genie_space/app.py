@@ -724,9 +724,16 @@ def get_model_response(trigger_data, current_messages, chat_history):
             content_for_ui = html.Div([
                 html.Div([data_table], style={'marginBottom': '20px', 'paddingRight': '5px'}),
                 query_section if query_section else None,
-                html.Div([viz_button, *insight_components], style={'display': 'flex', 'gap': '8px', 'marginTop': '16px'}),
+
+                # Controls row: show Viz + Insight button ONLY
+                html.Div(
+                    [viz_button, insight_button],
+                    style={'display': 'flex', 'gap': '8px', 'marginTop': '16px'}
+                ),
+
+                # Outputs (each rendered once)
                 viz_output,
-                *[comp for comp in insight_components if comp != insight_button],  # Add insight output after viz output
+                insight_output,
             ])
         
         # Now that the response is definitely a string, log it
