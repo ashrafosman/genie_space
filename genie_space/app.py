@@ -670,9 +670,9 @@ def get_model_response(trigger_data, current_messages, chat_history):
         if chat_history and len(chat_history) > 0:
             conversation = chat_history[0].get('turns', [])
 
-        # Execute with service principal (SPOBO). `forwarded_user_token` is kept for audit/attribution only.
+        # Execute user token `forwarded_user_token` 
         try:
-            response, query_text = genie_query(user_input, sp_token, conversation=conversation)
+            response, query_text = genie_query(user_input, forwarded_user_token, conversation=conversation)
         except TypeError:
             # Fallback: stitch last 10 turns into the prompt
             history_text = "\n".join([f"{t.get('role','user').upper()}: {t.get('content','')}" for t in conversation[-10:]])
