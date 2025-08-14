@@ -290,6 +290,23 @@ app = dash.Dash(
     external_stylesheets=[dbc.themes.BOOTSTRAP]
 )
 
+# Optional: debug headers on each request when GENIE_DEBUG_IDENTITY=1
+server = app.server
+@server.before_request
+def _dbg_headers_once_per_req():
+    try:
+        if os.getenv('GENIE_DEBUG_IDENTITY') == '1' and hasattr(flask.request, 'headers'):
+            hdrs = flask.request.headers
+            print('DEBUG: request header keys:', list(hdrs.keys()))
+            for k in [
+                'X-Forwarded-Email','X-Forwarded-Preferred-Username','X-User-Email',
+                'X-Db-User-Email','X-Forwarded-User','X-Databricks-User-Email',
+                'X-Databricks-User','X-Forwarded-Access-Token'
+            ]:
+                print(f'DEBUG: has {k}:', 'yes' if hdrs.get(k) is not None else 'no')
+    except Exception:
+        pass
+
 # Add default welcome text that can be customized
 DEFAULT_WELCOME_TITLE = "Genie Audit Demo"
 DEFAULT_WELCOME_DESCRIPTION = "Analyze CHHS programs and benifits."
@@ -300,8 +317,14 @@ DEFAULT_SUGGESTIONS = [
     "What can i ask"
 ]
 
-# Define the layout
-app.layout = html.Div([
+ # Define the layout (per-request so headers are available)
+
+def serve_layout():
+    try:
+        current_email = get_requester_identity()
+    except Exception:
+        current_email = "unknown_user"
+    return html.Div([
     # Top navigation bar
     html.Div([
         # Left component containing both nav-left and sidebar
@@ -335,11 +358,11 @@ app.layout = html.Div([
         html.Div([
             html.Div([
                 html.Div(
-                    USER_EMAIL[0].upper() if USER_EMAIL else "U",
+                    current_email[0].upper() if current_email else "U",
                     className="user-avatar"
                 ),
                 html.Div(
-                    USER_EMAIL,
+                    current_email,
                     className="user-email-display"
                 )
             ], style={"display": "flex", "alignItems": "center", "gap": "8px"}),
@@ -523,6 +546,8 @@ app.layout = html.Div([
     dcc.Store(id="session-store", data={"current_session": None})
 ])
 
+app.layout = serve_layout
+
 # Store chat history
 chat_history = []
 
@@ -623,10 +648,14 @@ def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, s
     if not user_input:
         return [no_update] * 8
 
-    # Create user message with user info
+    # Create user message with user info (per-request identity)
+    try:
+        current_email = get_requester_identity()
+    except Exception:
+        current_email = "unknown_user"
     user_message = html.Div([
         html.Div([
-            html.Div(USER_EMAIL[0].upper() if USER_EMAIL else "U", className="user-avatar"),
+            html.Div(current_email[0].upper() if current_email else "U", className="user-avatar"),
             html.Span("You", className="model-name")
         ], className="user-info"),
         html.Div(user_input, className="message-text")
