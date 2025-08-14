@@ -19,6 +19,11 @@ from databricks import sql
 from token_minter import TokenMinter
 load_dotenv()
 
+# Read environment variables immediately after loading .env
+CLIENT_ID = os.getenv("DATABRICKS_CLIENT_ID")
+CLIENT_SECRET = os.getenv("DATABRICKS_CLIENT_SECRET")
+DATABRICKS_HOST = os.getenv("DATABRICKS_HOST")
+
 token_minter = TokenMinter(
     client_id=CLIENT_ID,
     client_secret=CLIENT_SECRET,
@@ -116,10 +121,6 @@ try:
     USER_EMAIL = get_requester_identity()
 except Exception:
     USER_EMAIL = "unknown_user"
-
-CLIENT_ID = os.getenv("DATABRICKS_CLIENT_ID")
-CLIENT_SECRET = os.getenv("DATABRICKS_CLIENT_SECRET")
-DATABRICKS_HOST = os.getenv("DATABRICKS_HOST")
 
 
 
@@ -572,7 +573,7 @@ def handle_all_inputs(s1_clicks, s2_clicks, s3_clicks, s4_clicks, send_clicks, s
     # Create user message with user info
     user_message = html.Div([
         html.Div([
-            html.Div("Y", className="user-avatar"),
+            html.Div(USER_EMAIL[0].upper() if USER_EMAIL else "U", className="user-avatar"),
             html.Span("You", className="model-name")
         ], className="user-info"),
         html.Div(user_input, className="message-text")
