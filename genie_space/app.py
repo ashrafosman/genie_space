@@ -46,11 +46,29 @@ def get_requester_identity():
                 hdrs.get('X-Forwarded-Preferred-Username'),
                 hdrs.get('X-User-Email'),
                 hdrs.get('X-Db-User-Email'),
-                hdrs.get('X-Forwarded-User')
+                hdrs.get('X-Forwarded-User'),
+                hdrs.get('X-Databricks-User-Email'),
+                hdrs.get('X-Databricks-User')
             ]
             for c in candidates:
                 if _looks_like_email(c):
                     return c
+    except Exception:
+        pass
+
+    # Try to decode the forwarded *user* JWT from proxy header
+    try:
+        if request and hasattr(request, 'headers'):
+            fwd_token = request.headers.get('X-Forwarded-Access-Token')
+            if fwd_token and isinstance(fwd_token, str) and fwd_token.count('.') >= 2:
+                import base64, json
+                parts = fwd_token.split('.')
+                payload = parts[1] + '=' * (4 - (len(parts[1]) % 4))
+                data = json.loads(base64.b64decode(payload))
+                for key in ['email', 'upn', 'preferred_username', 'unique_name', 'user_name']:
+                    val = data.get(key)
+                    if _looks_like_email(val):
+                        return val
     except Exception:
         pass
 
@@ -122,6 +140,12 @@ def get_requester_identity():
         val = os.getenv(env_key)
         if _looks_like_email(val):
             return val
+    # Optional lightweight debugging of header keys
+    try:
+        if os.getenv('GENIE_DEBUG_IDENTITY') == '1' and request and hasattr(request, 'headers'):
+            print('DEBUG: request header keys:', list(request.headers.keys()))
+    except Exception:
+        pass
     return "unknown_user"
 
 # Guard USER_EMAIL assignment with try/except to avoid startup crashes
