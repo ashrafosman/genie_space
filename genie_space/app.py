@@ -31,34 +31,47 @@ token_minter = TokenMinter(
 )
 
 def get_requester_identity():
-    # Try to get email from X-Forwarded-User-Email header first
+    def _looks_like_email(v):
+        try:
+            return isinstance(v, str) and '@' in v and '.' in v.split('@')[-1]
+        except Exception:
+            return False
+
+    # Try to get email from proxy/forwarded headers first
     try:
         if request and hasattr(request, 'headers'):
-            forwarded_email = request.headers.get('X-Forwarded-Email')
-            if forwarded_email:
-                return forwarded_email
+            hdrs = request.headers
+            candidates = [
+                hdrs.get('X-Forwarded-Email'),
+                hdrs.get('X-Forwarded-Preferred-Username'),
+                hdrs.get('X-User-Email'),
+                hdrs.get('X-Db-User-Email'),
+                hdrs.get('X-Forwarded-User')
+            ]
+            for c in candidates:
+                if _looks_like_email(c):
+                    return c
     except Exception:
         pass
-    
+
     # Try to get email from Databricks WorkspaceClient
     try:
         from databricks.sdk import WorkspaceClient
         client = WorkspaceClient()
         current_user = client.current_user.me()
         if hasattr(current_user, 'emails') and current_user.emails:
-            # Look for primary email first, or any work email
             for email_obj in current_user.emails:
-                if email_obj.get('primary') or email_obj.get('type') == 'work':
-                    return email_obj.get('value')
-            # If no primary/work email, return the first email
-            return current_user.emails[0].get('value')
-        elif hasattr(current_user, 'user_name') and current_user.user_name:
-            return current_user.user_name
-        elif hasattr(current_user, 'display_name') and current_user.display_name:
-            return current_user.display_name
+                val = email_obj.get('value')
+                if _looks_like_email(val):
+                    return val
+        # Fallbacks must look like an email; skip GUIDs/service-principal ids
+        for attr in ['user_name', 'display_name']:
+            val = getattr(current_user, attr, None)
+            if _looks_like_email(val):
+                return val
     except Exception:
         pass
-    
+
     # Try to decode JWT token from token_minter
     try:
         import base64
@@ -72,49 +85,44 @@ def get_requester_identity():
                 payload += '=' * (4 - len(payload) % 4)
                 decoded = base64.b64decode(payload)
                 token_data = json.loads(decoded)
-                
-                # Look for email first, then other username fields in JWT
-                for field in ['email', 'preferred_username', 'sub', 'name', 'user_name']:
-                    if field in token_data and token_data[field]:
-                        return token_data[field]
+                for field in ['email', 'preferred_username', 'upn', 'unique_name', 'user_name', 'name']:
+                    val = token_data.get(field)
+                    if _looks_like_email(val):
+                        return val
     except Exception:
         pass
-    
+
     # Try to use Databricks token to get user info via API
     try:
         import requests
         databricks_host = os.getenv("DATABRICKS_HOST")
         databricks_token = os.getenv("DATABRICKS_TOKEN")
-        
         if databricks_host and databricks_token:
             url = f"{databricks_host}/api/2.0/preview/scim/v2/Me"
             headers = {"Authorization": f"Bearer {databricks_token}"}
             response = requests.get(url, headers=headers)
             if response.status_code == 200:
                 user_info = response.json()
-                # Try to get email first
                 emails = user_info.get('emails', [])
                 if emails:
-                    # Look for primary email first, or any work email
                     for email_obj in emails:
-                        if email_obj.get('primary') or email_obj.get('type') == 'work':
-                            return email_obj.get('value')
-                    # If no primary/work email, return the first email
-                    return emails[0].get('value')
-                # Fallback to userName or displayName
-                return user_info.get('userName', user_info.get('displayName', 'unknown_user'))
+                        val = email_obj.get('value')
+                        if _looks_like_email(val):
+                            return val
+                # Fallbacks
+                for key in ['userName', 'preferredUsername', 'displayName']:
+                    val = user_info.get(key)
+                    if _looks_like_email(val):
+                        return val
     except Exception:
         pass
-    
-    # Fallback to environment variables
-    username = (
-        os.getenv("DATABRICKS_USER") or 
-        os.getenv("USER") or 
-        os.getenv("USERNAME") or 
-        os.getenv("LOGNAME") or
-        "unknown_user"
-    )
-    return username
+
+    # Fallback to environment variables if any look like an email
+    for env_key in ["DATABRICKS_USER", "USER", "USERNAME", "LOGNAME"]:
+        val = os.getenv(env_key)
+        if _looks_like_email(val):
+            return val
+    return "unknown_user"
 
 # Guard USER_EMAIL assignment with try/except to avoid startup crashes
 try:
