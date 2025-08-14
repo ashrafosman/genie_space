@@ -69,6 +69,23 @@ def get_requester_identity():
                     val = data.get(key)
                     if _looks_like_email(val):
                         return val
+                # If we didn't find an email in the JWT, ask the IdP via userinfo
+                try:
+                    import requests
+                    host = os.getenv("DATABRICKS_HOST")
+                    if host:
+                        # Ensure scheme is present
+                        if not host.startswith("http"):
+                            host = f"https://{host}"
+                        resp = requests.get(f"{host}/oidc/userinfo", headers={"Authorization": f"Bearer {fwd_token}"}, timeout=5)
+                        if resp.status_code == 200:
+                            info = resp.json()
+                            for key in ["email", "upn", "preferred_username", "unique_name", "user_name"]:
+                                val = info.get(key)
+                                if _looks_like_email(val):
+                                    return val
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -143,7 +160,11 @@ def get_requester_identity():
     # Optional lightweight debugging of header keys
     try:
         if os.getenv('GENIE_DEBUG_IDENTITY') == '1' and request and hasattr(request, 'headers'):
-            print('DEBUG: request header keys:', list(request.headers.keys()))
+            hdrs = request.headers
+            print('DEBUG: request header keys:', list(hdrs.keys()))
+            # Print which candidate headers are present (no values)
+            for k in ['X-Forwarded-Email','X-Forwarded-Preferred-Username','X-User-Email','X-Db-User-Email','X-Forwarded-User','X-Databricks-User-Email','X-Databricks-User','X-Forwarded-Access-Token']:
+                print(f'DEBUG: has {k}:', 'yes' if hdrs.get(k) is not None else 'no')
     except Exception:
         pass
     return "unknown_user"
